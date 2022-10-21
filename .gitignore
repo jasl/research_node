@@ -1,0 +1,14 @@
+.DS_Store
+*.swp
+.vscode
+.idea/
+
+**/tmp/
+**/target/
+**/*.rs.bk
+.wasm-binaries
+rls*.log
+!/Cargo.lock
+**/Cargo.lock
+
+!/contracts/**/Cargo.lock
