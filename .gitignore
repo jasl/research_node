@@ -11,4 +11,4 @@ rls*.log
 **/Cargo.lock
 
 !/Cargo.lock
-!/contracts/**/Cargo.lock
+# !/contracts/**/Cargo.lock
