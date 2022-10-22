@@ -6,6 +6,7 @@
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
+use frame_system::limits::{BlockLength, BlockWeights};
 use sp_api::impl_runtime_apis;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
@@ -19,19 +20,19 @@ use sp_std::prelude::*;
 #[cfg(feature = "std")]
 use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
-use frame_system::limits::{BlockLength, BlockWeights};
 
 use pallet_grandpa::{fg_primitives, AuthorityId as GrandpaId, AuthorityList as GrandpaAuthorityList};
 
 // A few exports that help ease life for downstream crates.
 pub use frame_support::{
-	construct_runtime, parameter_types,
+	construct_runtime,
+	dispatch::DispatchClass,
+	parameter_types,
 	traits::{ConstU128, ConstU32, ConstU64, ConstU8, KeyOwnerProofSystem, Randomness, StorageInfo},
 	weights::{
 		constants::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight, WEIGHT_PER_SECOND},
 		IdentityFee, Weight,
 	},
-	dispatch::DispatchClass,
 	StorageValue,
 };
 pub use frame_system::Call as SystemCall;
@@ -43,19 +44,11 @@ pub use sp_runtime::BuildStorage;
 pub use sp_runtime::{Perbill, Permill};
 
 pub use node_primitives::{
+	currency::EXISTENTIAL_DEPOSIT,
 	opaque::{self, Header},
-	types::{
-		AccountId, Balance, BlockNumber, Hash, Index, Signature,
-	},
-	weight::{
-		AVERAGE_ON_INITIALIZE_RATIO, MAXIMUM_BLOCK_WEIGHT, NORMAL_DISPATCH_RATIO,
-	},
-	time::{
-		MINUTES, SLOT_DURATION,
-	},
-	currency::{
-		EXISTENTIAL_DEPOSIT,
-	}
+	time::{MINUTES, SLOT_DURATION},
+	types::{AccountId, Balance, BlockNumber, Hash, Index, Signature},
+	weight::{AVERAGE_ON_INITIALIZE_RATIO, MAXIMUM_BLOCK_WEIGHT, NORMAL_DISPATCH_RATIO},
 };
 
 impl_opaque_keys! {

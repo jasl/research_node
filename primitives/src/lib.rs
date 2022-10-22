@@ -51,8 +51,8 @@ pub mod types {
 /// of data like extrinsics, allowing for them to continue syncing the network through upgrades
 /// to even the core data structures.
 pub mod opaque {
-	use sp_runtime::{generic, traits::BlakeTwo256};
 	use crate::types::BlockNumber;
+	use sp_runtime::{generic, traits::BlakeTwo256};
 
 	pub use sp_runtime::OpaqueExtrinsic as UncheckedExtrinsic;
 	/// Opaque block header type.
