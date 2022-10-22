@@ -5,10 +5,14 @@ use crate::{
 	service,
 };
 use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE};
-use node_runtime::{Block, EXISTENTIAL_DEPOSIT};
 use sc_cli::{ChainSpec, RuntimeVersion, SubstrateCli};
 use sc_service::PartialComponents;
 use sp_keyring::Sr25519Keyring;
+
+use node_primitives::{
+	constants::currency::EXISTENTIAL_DEPOSIT,
+	opaque::Block,
+};
 
 impl SubstrateCli for Cli {
 	fn impl_name() -> String {

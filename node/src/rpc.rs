@@ -8,11 +8,15 @@
 use std::sync::Arc;
 
 use jsonrpsee::RpcModule;
-use node_runtime::{opaque::Block, AccountId, Balance, Index};
 use sc_transaction_pool_api::TransactionPool;
 use sp_api::ProvideRuntimeApi;
 use sp_block_builder::BlockBuilder;
 use sp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
+
+use node_primitives::{
+	opaque::Block,
+	types::{AccountId, Balance, Index},
+};
 
 pub use sc_rpc_api::DenyUnsafe;
 
@@ -45,11 +49,6 @@ where
 
 	module.merge(System::new(client.clone(), pool.clone(), deny_unsafe).into_rpc())?;
 	module.merge(TransactionPayment::new(client).into_rpc())?;
-
-	// Extend this RPC with a custom API by using the following syntax.
-	// `YourRpcStruct` should have a reference to a client, which is needed
-	// to call into the runtime.
-	// `module.merge(YourRpcTrait::into_rpc(YourRpcStruct::new(ReferenceToClient, ...)))?;`
 
 	Ok(module)
 }

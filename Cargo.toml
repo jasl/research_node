@@ -5,7 +5,7 @@ panic = "unwind"
 resolver = "2"
 
 members = [
-    # "primitives",
+    "primitives",
     "node",
     "runtime",
     # "pallets/message-queue",

@@ -1,5 +1,6 @@
+use node_primitives::types::AccountId;
 use node_runtime::{
-	AccountId, AuraConfig, BalancesConfig, GenesisConfig, GrandpaConfig, Signature, SudoConfig, SystemConfig,
+	AuraConfig, BalancesConfig, GenesisConfig, GrandpaConfig, Signature, SudoConfig, SystemConfig,
 	WASM_BINARY,
 };
 use sc_service::ChainType;
@@ -143,10 +144,10 @@ fn testnet_genesis(
 		},
 		aura: AuraConfig { authorities: initial_authorities.iter().map(|x| (x.0.clone())).collect() },
 		grandpa: GrandpaConfig { authorities: initial_authorities.iter().map(|x| (x.1.clone(), 1)).collect() },
+		transaction_payment: Default::default(),
 		sudo: SudoConfig {
 			// Assign network admin rights.
 			key: Some(root_key),
 		},
-		transaction_payment: Default::default(),
 	}
 }

@@ -57,6 +57,7 @@ frame-benchmarking = { git = "https://github.com/paritytech/substrate", branch =
 frame-benchmarking-cli = { git = "https://github.com/paritytech/substrate", branch = "master" }
 
 # Local Dependencies
+node-primitives = { path = "../primitives" }
 node-runtime = { path = "../runtime", package = "research-runtime" }
 
 # CLI-specific dependencies
