@@ -1,8 +1,8 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
+use node_runtime::{self, opaque::Block, RuntimeApi};
 use sc_client_api::BlockBackend;
 use sc_consensus_aura::{ImportQueueParams, SlotProportion, StartAuraParams};
-pub use sc_executor::NativeElseWasmExecutor;
 use sc_finality_grandpa::SharedVoterState;
 use sc_keystore::LocalKeystore;
 use sc_service::{error::Error as ServiceError, Configuration, TaskManager};
@@ -10,8 +10,7 @@ use sc_telemetry::{Telemetry, TelemetryWorker};
 use sp_consensus_aura::sr25519::AuthorityPair as AuraPair;
 use std::{sync::Arc, time::Duration};
 
-use node_primitives::opaque::Block;
-use node_runtime::{self, RuntimeApi};
+pub use sc_executor::NativeElseWasmExecutor;
 
 // Our native executor instance.
 pub struct ExecutorDispatch;
@@ -125,6 +124,7 @@ pub fn new_partial(
 		registry: config.prometheus_registry(),
 		check_for_equivocation: Default::default(),
 		telemetry: telemetry.as_ref().map(|x| x.handle()),
+		compatibility_mode: Default::default(),
 	})?;
 
 	Ok(sc_service::PartialComponents {
@@ -261,6 +261,7 @@ pub fn new_full(mut config: Configuration) -> Result<TaskManager, ServiceError> 
 			block_proposal_slot_portion: SlotProportion::new(2f32 / 3f32),
 			max_block_proposal_slot_portion: None,
 			telemetry: telemetry.as_ref().map(|x| x.handle()),
+			compatibility_mode: Default::default(),
 		})?;
 
 		// the AURA authoring task is considered essential, i.e. if it
