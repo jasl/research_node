@@ -5,8 +5,8 @@ description = "A fresh FRAME-based Substrate node, ready for hacking."
 authors = ["Jasl <https://github.com/jasl>"]
 homepage = "https://github.com/jasl/research-node/"
 repository = "https://github.com/jasl/research-node/"
-edition = "2021"
 license = "MIT"
+edition = "2021"
 publish = false
 build = "build.rs"
 

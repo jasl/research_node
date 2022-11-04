@@ -19,4 +19,6 @@ mod vesting;
 
 mod contracts;
 
+mod registrar;
+
 mod sudo;
