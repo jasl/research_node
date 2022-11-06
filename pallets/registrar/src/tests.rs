@@ -1,20 +1,32 @@
+#[allow(unused)]
 use crate::{mock::*, Error};
-use frame_support::{assert_noop, assert_ok};
+#[allow(unused)]
+use frame_support::{assert_noop, assert_ok, assert_err};
 
 #[test]
-fn it_works_for_default_value() {
+fn register_works() {
 	new_test_ext().execute_with(|| {
-		// Dispatch a signed extrinsic.
-		assert_ok!(Registrar::do_something(RuntimeOrigin::signed(1), 42));
-		// Read pallet storage and assert an expected result.
-		assert_eq!(Registrar::something(), Some(42));
-	});
-}
+		let owner = 1;
+		let controller = 2;
 
-#[test]
-fn correct_error_for_none_value() {
-	new_test_ext().execute_with(|| {
+		set_balance(owner, 101 * DOLLARS, 0);
+
+		assert_ok!(
+			Registrar::register(
+				RuntimeOrigin::signed(1),
+				controller,
+				100 * DOLLARS
+			)
+		);
+
+		let worker_info = Registrar::workers(controller).unwrap();
+		let current_account = worker_info.current_account;
+
+		assert_eq!(Balances::free_balance(owner), 1 * DOLLARS);
+		assert_eq!(Balances::free_balance(controller), 0);
+		assert_eq!(Balances::free_balance(current_account), 100 * DOLLARS);
+
 		// Ensure the expected error is thrown when no value is present.
-		assert_noop!(Registrar::cause_error(RuntimeOrigin::signed(1)), Error::<Test>::NoneValue);
+		// assert_noop!(Registrar::cause_error(RuntimeOrigin::signed(1)), Error::<Test>::NoneValue);
 	});
 }

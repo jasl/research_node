@@ -3,8 +3,28 @@
 
 pub use pallet::*;
 
+use frame_support::{
+	ensure,
+	dispatch::DispatchResult,
+	traits::Currency,
+};
+use frame_support::traits::ExistenceRequirement::KeepAlive;
+use scale_codec::{Decode, Encode};
+use sp_core::Get;
+use sp_runtime::{
+	traits::{StaticLookup, TrailingZeroInput},
+};
+use crate::primitives::{
+	WorkerInfo,
+};
+
+type AccountIdLookupOf<T> = <<T as frame_system::Config>::Lookup as StaticLookup>::Source;
+type BalanceOf<T> =
+	<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+
 #[frame_support::pallet]
 pub(crate) mod pallet {
+	use super::*;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
 
@@ -17,75 +37,116 @@ pub(crate) mod pallet {
 	pub trait Config: frame_system::Config {
 		/// Because this pallet emits events, it depends on the runtime's definition of an event.
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
-	}
 
-	// The pallet's runtime storage items.
-	// https://docs.substrate.io/main-docs/build/runtime-storage/
-	#[pallet::storage]
-	#[pallet::getter(fn something)]
-	// Learn more about declaring storage items:
-	// https://docs.substrate.io/main-docs/build/runtime-storage/#declaring-storage-items
-	pub type Something<T> = StorageValue<_, u32>;
+		/// The system's currency for payment.
+		type Currency: Currency<Self::AccountId>;
+
+		/// The minimum amount required to keep a worker registration.
+		#[pallet::constant]
+		type ExistentialDeposit: Get<BalanceOf<Self>>;
+
+		// TODO: type WeightInfo: WeightInfo;
+	}
 
 	// Pallets use events to inform users when important changes are made.
 	// https://docs.substrate.io/main-docs/build/events-errors/
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
-		/// Event documentation should end with an array that provides descriptive names for event
-		/// parameters. [something, who]
-		SomethingStored { something: u32, who: T::AccountId },
+		/// The worker registered successfully
+		Registered { owner: T::AccountId, controller: T::AccountId },
 	}
 
 	// Errors inform users that something went wrong.
 	#[pallet::error]
 	pub enum Error<T> {
-		/// Error names should be descriptive.
-		NoneValue,
-		/// Errors should have helpful documentation associated with them.
-		StorageOverflow,
+		/// Initial deposit for register a worker must equal or above `ExistentialDeposit`
+		InitialDepositTooLow,
+		/// Worker already registered
+		AlreadyRegistered,
 	}
+
+	/// Storage for workers.
+	#[pallet::storage]
+	#[pallet::getter(fn workers)]
+	pub type Workers<T: Config> =
+		CountedStorageMap<_, Twox64Concat, T::AccountId, WorkerInfo<T::AccountId>>;
 
 	// Dispatchable functions allows users to interact with the pallet and invoke state changes.
 	// These functions materialize as "extrinsics", which are often compared to transactions.
 	// Dispatchable functions must be annotated with a weight and must return a DispatchResult.
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		/// An example dispatchable that takes a singles value as a parameter, writes the value to
-		/// storage and emits an event. This function must be dispatched by a signed extrinsic.
-		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
-		pub fn do_something(origin: OriginFor<T>, something: u32) -> DispatchResult {
-			// Check that the extrinsic was signed and get the signer.
-			// This function will return an error if the extrinsic is not signed.
-			// https://docs.substrate.io/main-docs/build/origins/
+		/// Register head data and validation code for a reserved Para Id.
+		///
+		/// ## Arguments
+		/// - `origin`: Must be called by a `Signed` origin.
+		/// - `id`: The para ID. Must be owned/managed by the `origin` signing account.
+		/// - `genesis_head`: The genesis head data of the parachain/thread.
+		/// - `validation_code`: The initial validation code of the parachain/thread.
+		///
+		/// ## Deposits/Fees
+		/// The origin signed account must reserve a corresponding deposit for the registration. Anything already
+		/// reserved previously for this para ID is accounted for.
+		///
+		/// ## Events
+		/// The `Registered` event is emitted in case of success.
+		/// #[pallet::weight(<T as Config>::WeightInfo::register())]
+		#[pallet::weight(0)]
+		pub fn register(
+			origin: OriginFor<T>,
+			controller: T::AccountId,
+			initial_deposit: BalanceOf<T>,
+		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-
-			// Update storage.
-			<Something<T>>::put(something);
-
-			// Emit an event.
-			Self::deposit_event(Event::SomethingStored { something, who });
-			// Return a successful DispatchResultWithPostInfo
-			Ok(())
+			Self::do_register(who, controller, initial_deposit)
 		}
+	}
+}
 
-		/// An example dispatchable that may throw a custom error.
-		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1).ref_time())]
-		pub fn cause_error(origin: OriginFor<T>) -> DispatchResult {
-			let _who = ensure_signed(origin)?;
+impl<T: Config> Pallet<T> {
+	fn do_register(
+		who: T::AccountId,
+		controller: T::AccountId,
+		initial_deposit: BalanceOf<T>,
+	) -> DispatchResult {
+		ensure!(
+			initial_deposit >= T::ExistentialDeposit::get(),
+			Error::<T>::InitialDepositTooLow
+		);
 
-			// Read a value from storage.
-			match <Something<T>>::get() {
-				// Return an error if the value has not been set.
-				None => return Err(Error::<T>::NoneValue.into()),
-				Some(old) => {
-					// Increment the value read from storage; will error in the event of overflow.
-					let new = old.checked_add(1).ok_or(Error::<T>::StorageOverflow)?;
-					// Update the value in storage with the incremented result.
-					<Something<T>>::put(new);
-					Ok(())
-				},
-			}
-		}
+		ensure!(
+			!Workers::<T>::contains_key(&controller),
+			Error::<T>::AlreadyRegistered
+		);
+
+		let current_account: T::AccountId = Self::assign_current_account_for(&controller);
+		let worker_info = WorkerInfo {
+			owner: who.clone(),
+			controller: controller.clone(),
+			current_account: current_account.clone(),
+		};
+
+		<T as Config>::Currency::transfer(
+			&who,
+			&current_account,
+			initial_deposit,
+			KeepAlive
+		)?;
+
+		Workers::<T>::insert(controller.clone(), worker_info);
+
+		Self::deposit_event(
+			Event::<T>::Registered { owner: who.clone(), controller: controller.clone() }
+		);
+		Ok(())
+	}
+
+	fn assign_current_account_for<Encodable>(controller: &T::AccountId) -> Encodable
+	where Encodable: Encode + Decode
+	{
+		(b"current_account/", controller)
+			.using_encoded(|b| Encodable::decode(&mut TrailingZeroInput::new(b)))
+			.expect("Decoding zero-padded account id should always succeed; qed")
 	}
 }
