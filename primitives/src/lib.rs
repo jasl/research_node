@@ -68,8 +68,8 @@ pub mod constants {
 	pub mod currency {
 		use crate::types::Balance;
 
-		pub const MILLI_CENTS: Balance = 1_000_000_000;
-		pub const CENTS: Balance = 1_000 * MILLI_CENTS; // assume this is worth about a cent.
+		pub const MILLI_CENTS: Balance = 1_000_000;
+		pub const CENTS: Balance = 1_000 * MILLI_CENTS;
 		pub const DOLLARS: Balance = 100 * CENTS;
 
 		/// Existential deposit.
