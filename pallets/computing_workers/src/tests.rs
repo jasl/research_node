@@ -12,14 +12,14 @@ fn register_works() {
 		set_balance(owner, 101 * DOLLARS, 0);
 
 		assert_ok!(
-			Registrar::register(
+			ComputingWorkers::register(
 				RuntimeOrigin::signed(1),
 				controller,
 				100 * DOLLARS
 			)
 		);
 
-		let worker_info = Registrar::workers(controller).unwrap();
+		let worker_info = ComputingWorkers::workers(controller).unwrap();
 		let current_account = worker_info.current_account;
 
 		assert_eq!(Balances::free_balance(owner), 1 * DOLLARS);
@@ -27,6 +27,6 @@ fn register_works() {
 		assert_eq!(Balances::free_balance(current_account), 100 * DOLLARS);
 
 		// Ensure the expected error is thrown when no value is present.
-		// assert_noop!(Registrar::cause_error(RuntimeOrigin::signed(1)), Error::<Test>::NoneValue);
+		// assert_noop!(ComputingWorkers::cause_error(RuntimeOrigin::signed(1)), Error::<Test>::NoneValue);
 	});
 }

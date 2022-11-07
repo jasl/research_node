@@ -19,6 +19,6 @@ mod vesting;
 
 mod contracts;
 
-mod registrar;
+mod computing_workers;
 
 mod sudo;

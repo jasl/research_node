@@ -66,7 +66,7 @@ pub(crate) mod pallet {
 		AlreadyRegistered,
 	}
 
-	/// Storage for workers.
+	/// Storage for computing_workers.
 	#[pallet::storage]
 	#[pallet::getter(fn workers)]
 	pub type Workers<T: Config> =

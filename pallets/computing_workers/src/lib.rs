@@ -16,7 +16,7 @@ mod tests;
 mod benchmarking;
 
 /// The log target of this pallet.
-pub const LOG_TARGET: &'static str = "runtime::registrar";
+pub const LOG_TARGET: &'static str = "runtime::computing_workers";
 
 // syntactic sugar for logging.
 #[macro_export]

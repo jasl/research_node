@@ -5,7 +5,7 @@ description = "A fresh FRAME-based Substrate runtime, ready for hacking."
 authors = ["Jasl <https://github.com/jasl>"]
 homepage = "https://github.com/jasl/research-node/"
 repository = "https://github.com/jasl/research-node/"
-license = "MIT"
+license = "Apache-2.0"
 edition = "2021"
 publish = false
 
@@ -54,7 +54,7 @@ pallet-vesting = { git = "https://github.com/paritytech/substrate", branch = "ma
 pallet-contracts = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false, features = ["unstable-interface"] }
 pallet-contracts-primitives = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
 
-pallet-registrar = { path = "../pallets/registrar", default-features = false }
+pallet-computing_workers = { path = "../pallets/computing_workers", default-features = false }
 
 # Local Dependencies
 node-primitives = { path = "../primitives", default-features = false }
@@ -102,7 +102,7 @@ std = [
 	"pallet-vesting/std",
 	"pallet-contracts-primitives/std",
 	"pallet-contracts/std",
-	"pallet-registrar/std",
+	"pallet-computing_workers/std",
 ]
 runtime-benchmarks = [
 	"sp-runtime/runtime-benchmarks",
@@ -120,7 +120,7 @@ runtime-benchmarks = [
 	"pallet-proxy/runtime-benchmarks",
 	"pallet-vesting/runtime-benchmarks",
 	"pallet-contracts/runtime-benchmarks",
-	"pallet-registrar/runtime-benchmarks",
+	"pallet-computing_workers/runtime-benchmarks",
 ]
 try-runtime = [
 	"frame-try-runtime/try-runtime",
@@ -141,5 +141,5 @@ try-runtime = [
 	"pallet-proxy/try-runtime",
 	"pallet-vesting/try-runtime",
 	"pallet-contracts/try-runtime",
-	"pallet-registrar/try-runtime",
+	"pallet-computing_workers/try-runtime",
 ]

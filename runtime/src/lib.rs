@@ -163,7 +163,7 @@ construct_runtime!(
 		// The main stage
 		Contracts: pallet_contracts::{Pallet, Call, Storage, Event<T>} = 100,
 
-		Registrar: pallet_registrar::{Pallet, Call, Storage, Event<T>} = 101,
+		ComputingWorkers: pallet_computing_workers::{Pallet, Call, Storage, Event<T>} = 101,
 
 		// Non-permanent
 		Sudo: pallet_sudo::{Pallet, Call, Config<T>, Event<T>, Storage} = 255,
@@ -225,6 +225,7 @@ mod benches {
 		[pallet_vesting, Vesting]
 		[pallet_grandpa, Grandpa]
 		[pallet_contracts, Contracts]
+		[pallet_computing_workers, ComputingWorkers]
 	);
 }
 

@@ -1,11 +1,11 @@
 [package]
-name = "pallet-registrar"
+name = "pallet-computing_workers"
 version = "0.0.1-dev"
-description = "Registrar pallet."
+description = "Substrate pallet for managing decentralized offchain computing workers."
 authors = ["Jasl <https://github.com/jasl>"]
 homepage = "https://github.com/jasl/research-node/"
 repository = "https://github.com/jasl/research-node/"
-license = "MIT"
+license = "Apache-2.0"
 edition = "2021"
 publish = false
 

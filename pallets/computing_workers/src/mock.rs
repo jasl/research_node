@@ -1,4 +1,4 @@
-use crate as pallet_registrar;
+use crate as pallet_computing_workers;
 
 use frame_support::{
 	assert_ok,
@@ -33,7 +33,7 @@ frame_support::construct_runtime!(
 	{
 		System: frame_system,
 		Balances: pallet_balances,
-		Registrar: pallet_registrar,
+		ComputingWorkers: pallet_computing_workers,
 	}
 );
 
@@ -76,7 +76,7 @@ impl pallet_balances::Config for Test {
 	type ReserveIdentifier = [u8; 8];
 }
 
-impl pallet_registrar::Config for Test {
+impl pallet_computing_workers::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;
 	type ExistentialDeposit = ConstU128<{ 100 * DOLLARS }>;

@@ -1,9 +1,9 @@
-//! Benchmarking setup for pallet-registrar
+//! Benchmarking setup for pallet-computing_workers
 
 use super::*;
 
 #[allow(unused)]
-use crate::Pallet as Registrar;
+use crate::Pallet as ComputingWorkers;
 use frame_benchmarking::{benchmarks, whitelisted_caller};
 use frame_system::RawOrigin;
 
@@ -16,5 +16,5 @@ benchmarks! {
 		assert_eq!(Something::<T>::get(), Some(s));
 	}
 
-	impl_benchmark_test_suite!(Registrar, crate::mock::new_test_ext(), crate::mock::Test);
+	impl_benchmark_test_suite!(ComputingWorkers, crate::mock::new_test_ext(), crate::mock::Test);
 }
