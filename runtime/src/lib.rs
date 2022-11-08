@@ -81,7 +81,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	impl_version: 1,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
-	state_version: 2,
+	state_version: 1,
 };
 
 /// The version information used to identify this runtime when compiled natively.
@@ -201,9 +201,8 @@ pub type Executive = frame_executive::Executive<
 	AllPalletsWithSystem,
 	Migrations,
 >;
-
-// All migrations executed on runtime upgrade as a nested tuple of types implementing
-// `OnRuntimeUpgrade`.
+/// All migrations executed on runtime upgrade as a nested tuple of types implementing
+/// `OnRuntimeUpgrade`.
 type Migrations = ();
 
 #[cfg(feature = "runtime-benchmarks")]

@@ -6,9 +6,12 @@ pub use pallet::*;
 use frame_support::{
 	ensure,
 	dispatch::DispatchResult,
-	traits::Currency,
+	traits::{
+		Currency,
+		ExistenceRequirement,
+	},
+	transactional,
 };
-use frame_support::traits::ExistenceRequirement::KeepAlive;
 use scale_codec::{Decode, Encode};
 use sp_core::Get;
 use sp_runtime::{
@@ -64,6 +67,12 @@ pub(crate) mod pallet {
 		InitialDepositTooLow,
 		/// Worker already registered
 		AlreadyRegistered,
+		/// The extrinsic origin isn't the worker's owner
+		NotOwner,
+		/// The extrinsic origin isn't the worker's controller
+		NotController,
+		/// The worker not exists
+		WorkerNotExists,
 	}
 
 	/// Storage for computing_workers.
@@ -77,22 +86,23 @@ pub(crate) mod pallet {
 	// Dispatchable functions must be annotated with a weight and must return a DispatchResult.
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		/// Register head data and validation code for a reserved Para Id.
+		/// Register a computing workers.
 		///
 		/// ## Arguments
-		/// - `origin`: Must be called by a `Signed` origin.
-		/// - `id`: The para ID. Must be owned/managed by the `origin` signing account.
-		/// - `genesis_head`: The genesis head data of the parachain/thread.
-		/// - `validation_code`: The initial validation code of the parachain/thread.
+		/// - `origin`: Must be called by a `Signed` origin, it will become the worker's owner.
+		/// - `controller`: The account who operate the worker. a controller can only manage one worker.
+		/// - `initial_deposit`: Initial deposit amount.
 		///
 		/// ## Deposits/Fees
-		/// The origin signed account must reserve a corresponding deposit for the registration. Anything already
-		/// reserved previously for this para ID is accounted for.
+		/// The origin signed account will transfer `initial_deposit` to worker's current account
+		/// that will use for slashing.
+		/// If the balance below `ExistentialDeposit`, the worker will be removed
 		///
 		/// ## Events
 		/// The `Registered` event is emitted in case of success.
-		/// #[pallet::weight(<T as Config>::WeightInfo::register())]
+		// TODO: #[pallet::weight(<T as Config>::WeightInfo::register())]
 		#[pallet::weight(0)]
+		#[transactional]
 		pub fn register(
 			origin: OriginFor<T>,
 			controller: T::AccountId,
@@ -100,6 +110,17 @@ pub(crate) mod pallet {
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 			Self::do_register(who, controller, initial_deposit)
+		}
+
+		/// Deregister a computing workers.
+		#[pallet::weight(0)]
+		#[transactional]
+		pub fn deregister(
+			origin: OriginFor<T>,
+			controller: T::AccountId,
+		) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+			Self::do_deregister(who, controller)
 		}
 	}
 }
@@ -131,14 +152,41 @@ impl<T: Config> Pallet<T> {
 			&who,
 			&current_account,
 			initial_deposit,
-			KeepAlive
+			ExistenceRequirement::KeepAlive
 		)?;
 
-		Workers::<T>::insert(controller.clone(), worker_info);
+		Workers::<T>::insert(&controller, worker_info);
 
 		Self::deposit_event(
 			Event::<T>::Registered { owner: who.clone(), controller: controller.clone() }
 		);
+		Ok(())
+	}
+
+	fn do_deregister(
+		who: T::AccountId,
+		controller: T::AccountId,
+	) -> DispatchResult {
+		let worker_info = Workers::<T>::get(&controller).ok_or(Error::<T>::WorkerNotExists)?;
+		Self::ensure_owner(&who, &worker_info)?;
+
+		let current_account = worker_info.current_account;
+		<T as Config>::Currency::transfer(
+			&current_account,
+			&who,
+			<T as Config>::Currency::free_balance(&current_account),
+			ExistenceRequirement::AllowDeath
+		)?;
+
+		Workers::<T>::remove(&controller);
+
+		Ok(())
+	}
+
+	fn ensure_owner(
+		who: &T::AccountId, worker_info: &WorkerInfo<T::AccountId>
+	) -> DispatchResult {
+		ensure!(*who == worker_info.owner, Error::<T>::NotOwner);
 		Ok(())
 	}
 
