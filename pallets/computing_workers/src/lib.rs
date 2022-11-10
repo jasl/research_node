@@ -1,7 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 pub mod traits;
-pub mod primitives;
+pub mod types;
 
 mod pallet;
 pub use pallet::*;

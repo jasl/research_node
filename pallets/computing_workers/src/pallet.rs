@@ -17,9 +17,7 @@ use sp_core::Get;
 use sp_runtime::{
 	traits::{StaticLookup, TrailingZeroInput},
 };
-use crate::primitives::{
-	WorkerInfo,
-};
+use crate::types::{WorkerInfo, WorkerStatus};
 
 type AccountIdLookupOf<T> = <<T as frame_system::Config>::Lookup as StaticLookup>::Source;
 type BalanceOf<T> =
@@ -146,6 +144,7 @@ impl<T: Config> Pallet<T> {
 			owner: who.clone(),
 			controller: controller.clone(),
 			current_account: current_account.clone(),
+			status: WorkerStatus::Registered,
 		};
 
 		<T as Config>::Currency::transfer(

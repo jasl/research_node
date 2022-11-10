@@ -1,9 +1,9 @@
 #[allow(unused)]
-use crate::{mock::*, Error};
+use crate::{types::*, mock::*, Error};
 #[allow(unused)]
 use frame_support::{assert_noop, assert_ok, assert_err};
+#[allow(unused)]
 use frame_system::Account;
-use crate::primitives::WorkerInfo;
 
 #[allow(unused)]
 const ALICE: AccountId = 1;
@@ -32,6 +32,7 @@ fn register_worker_for(
 	let worker_info = ComputingWorkers::workers(controller).unwrap();
 	let current_account = worker_info.current_account;
 
+	assert_eq!(worker_info.status, WorkerStatus::Registered);
 	assert_eq!(Balances::free_balance(owner), owner_balance - initial_deposit);
 	assert_eq!(Balances::free_balance(controller), 0);
 	assert_eq!(Balances::free_balance(current_account), initial_deposit);
