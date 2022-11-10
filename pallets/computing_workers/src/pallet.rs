@@ -139,7 +139,7 @@ impl<T: Config> Pallet<T> {
 			Error::<T>::AlreadyRegistered
 		);
 
-		let current_account: T::AccountId = Self::assign_current_account_for(&controller);
+		let current_account: T::AccountId = Self::current_account_of(&controller);
 		let worker_info = WorkerInfo {
 			owner: who.clone(),
 			controller: controller.clone(),
@@ -189,10 +189,10 @@ impl<T: Config> Pallet<T> {
 		Ok(())
 	}
 
-	fn assign_current_account_for<Encodable>(controller: &T::AccountId) -> Encodable
+	fn current_account_of<Encodable>(controller: &T::AccountId) -> Encodable
 	where Encodable: Encode + Decode
 	{
-		(b"current_account/", controller)
+		(b"CA/", controller)
 			.using_encoded(|b| Encodable::decode(&mut TrailingZeroInput::new(b)))
 			.expect("Decoding zero-padded account id should always succeed; qed")
 	}
