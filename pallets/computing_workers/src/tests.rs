@@ -30,12 +30,12 @@ fn register_worker_for(
 	);
 
 	let worker_info = ComputingWorkers::workers(controller).unwrap();
-	let current_account = worker_info.current_account;
+	let stash = worker_info.stash;
 
 	assert_eq!(worker_info.status, WorkerStatus::Registered);
 	assert_eq!(Balances::free_balance(owner), owner_balance - initial_deposit);
 	assert_eq!(Balances::free_balance(controller), 0);
-	assert_eq!(Balances::free_balance(current_account), initial_deposit);
+	assert_eq!(Balances::free_balance(stash), initial_deposit);
 
 	worker_info
 }
@@ -76,7 +76,7 @@ fn deregister_works() {
 		set_balance(ALICE, 101 * DOLLARS, 0);
 
 		let alice_worker = register_worker_for(ALICE, ALICE_CONTROLLER, 100 * DOLLARS);
-		let alice_worker_current_account = alice_worker.current_account;
+		let alice_worker_stash = alice_worker.stash;
 
 		run_to_block(1);
 
@@ -89,6 +89,6 @@ fn deregister_works() {
 
 		assert_eq!(Balances::free_balance(ALICE), 101 * DOLLARS);
 		assert_eq!(Balances::free_balance(ALICE_CONTROLLER), 0);
-		assert!(!Account::<Test>::contains_key(&alice_worker_current_account));
+		assert!(!Account::<Test>::contains_key(&alice_worker_stash));
 	});
 }

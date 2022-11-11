@@ -139,17 +139,17 @@ impl<T: Config> Pallet<T> {
 			Error::<T>::AlreadyRegistered
 		);
 
-		let current_account: T::AccountId = Self::current_account_of(&controller);
+		let stash: T::AccountId = Self::stash_of(&controller);
 		let worker_info = WorkerInfo {
 			owner: who.clone(),
 			controller: controller.clone(),
-			current_account: current_account.clone(),
+			stash: stash.clone(),
 			status: WorkerStatus::Registered,
 		};
 
 		<T as Config>::Currency::transfer(
 			&who,
-			&current_account,
+			&stash,
 			initial_deposit,
 			ExistenceRequirement::KeepAlive
 		)?;
@@ -169,11 +169,11 @@ impl<T: Config> Pallet<T> {
 		let worker_info = Workers::<T>::get(&controller).ok_or(Error::<T>::WorkerNotExists)?;
 		Self::ensure_owner(&who, &worker_info)?;
 
-		let current_account = worker_info.current_account;
+		let stash = worker_info.stash;
 		<T as Config>::Currency::transfer(
-			&current_account,
+			&stash,
 			&who,
-			<T as Config>::Currency::free_balance(&current_account),
+			<T as Config>::Currency::free_balance(&stash),
 			ExistenceRequirement::AllowDeath
 		)?;
 
@@ -189,10 +189,10 @@ impl<T: Config> Pallet<T> {
 		Ok(())
 	}
 
-	fn current_account_of<Encodable>(controller: &T::AccountId) -> Encodable
+	fn stash_of<Encodable>(controller: &T::AccountId) -> Encodable
 	where Encodable: Encode + Decode
 	{
-		(b"CA/", controller)
+		(b"stash/", controller)
 			.using_encoded(|b| Encodable::decode(&mut TrailingZeroInput::new(b)))
 			.expect("Decoding zero-padded account id should always succeed; qed")
 	}

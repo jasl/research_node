@@ -11,11 +11,13 @@ pub enum WorkerStatus {
 	/// Initial status for a new registered worker.
 	Registered,
 	/// The worker is online so it can accept job
-	/// Transit from `Registered` and `Offline`
+	/// Transit from `Registered`, `Offline`, `Maintaining`
 	Online,
 	/// The worker is offline so it can't accept job.
 	/// Transit from `Online`
 	Offline,
+	/// The worker is under maintaining
+	Maintaining,
 	/// The worker is pending to deregister
 	Deregistering,
 }
@@ -27,14 +29,14 @@ impl Default for WorkerStatus {
 /// Worker's info.
 #[derive(Encode, Decode, MaxEncodedLen, TypeInfo, RuntimeDebug, Clone, PartialEq, Eq, Default)]
 pub struct WorkerInfo<Account> {
-	/// Account that owning the worker, can manage current_account.
+	/// Account that owning the worker.
 	pub(crate) owner: Account,
 	/// Account that has permission to operate the worker's working state.
 	pub(crate) controller: Account,
 	/// Account that holds income and slash,
 	/// if its balance lower than `ExistentialDeposit`,
 	/// the registration will be revoked, and remaining balance will return to the owner.
-	pub(crate) current_account: Account,
+	pub(crate) stash: Account,
 	/// Status
 	pub(crate) status: WorkerStatus,
 }
