@@ -55,7 +55,9 @@ pub(crate) mod pallet {
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
 		/// The worker registered successfully
-		Registered { owner: T::AccountId, controller: T::AccountId },
+		Registered { identity: T::AccountId },
+		/// The worker registered successfully
+		Deregistered { identity: T::AccountId },
 	}
 
 	// Errors inform users that something went wrong.
@@ -67,8 +69,8 @@ pub(crate) mod pallet {
 		AlreadyRegistered,
 		/// The extrinsic origin isn't the worker's owner
 		NotOwner,
-		/// The extrinsic origin isn't the worker's controller
-		NotController,
+		/// The extrinsic origin isn't the worker's identity
+		Notidentity,
 		/// The worker not exists
 		WorkerNotExists,
 	}
@@ -88,7 +90,7 @@ pub(crate) mod pallet {
 		///
 		/// ## Arguments
 		/// - `origin`: Must be called by a `Signed` origin, it will become the worker's owner.
-		/// - `controller`: The account who operate the worker. a controller can only manage one worker.
+		/// - `identity`: The account who operate the worker. a identity can only manage one worker.
 		/// - `initial_deposit`: Initial deposit amount.
 		///
 		/// ## Deposits/Fees
@@ -103,11 +105,11 @@ pub(crate) mod pallet {
 		#[transactional]
 		pub fn register(
 			origin: OriginFor<T>,
-			controller: T::AccountId,
+			identity: T::AccountId,
 			initial_deposit: BalanceOf<T>,
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-			Self::do_register(who, controller, initial_deposit)
+			Self::do_register(who, identity, initial_deposit)
 		}
 
 		/// Deregister a computing workers.
@@ -115,10 +117,10 @@ pub(crate) mod pallet {
 		#[transactional]
 		pub fn deregister(
 			origin: OriginFor<T>,
-			controller: T::AccountId,
+			identity: T::AccountId,
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-			Self::do_deregister(who, controller)
+			Self::do_deregister(who, identity)
 		}
 	}
 }
@@ -126,7 +128,7 @@ pub(crate) mod pallet {
 impl<T: Config> Pallet<T> {
 	fn do_register(
 		who: T::AccountId,
-		controller: T::AccountId,
+		identity: T::AccountId,
 		initial_deposit: BalanceOf<T>,
 	) -> DispatchResult {
 		ensure!(
@@ -135,14 +137,14 @@ impl<T: Config> Pallet<T> {
 		);
 
 		ensure!(
-			!Workers::<T>::contains_key(&controller),
+			!Workers::<T>::contains_key(&identity),
 			Error::<T>::AlreadyRegistered
 		);
 
-		let stash: T::AccountId = Self::stash_of(&controller);
+		let stash: T::AccountId = Self::stash_of(&identity);
 		let worker_info = WorkerInfo {
 			owner: who.clone(),
-			controller: controller.clone(),
+			identity: identity.clone(),
 			stash: stash.clone(),
 			status: WorkerStatus::Registered,
 		};
@@ -154,19 +156,19 @@ impl<T: Config> Pallet<T> {
 			ExistenceRequirement::KeepAlive
 		)?;
 
-		Workers::<T>::insert(&controller, worker_info);
+		Workers::<T>::insert(&identity, worker_info);
 
 		Self::deposit_event(
-			Event::<T>::Registered { owner: who.clone(), controller: controller.clone() }
+			Event::<T>::Registered { identity: identity.clone() }
 		);
 		Ok(())
 	}
 
 	fn do_deregister(
 		who: T::AccountId,
-		controller: T::AccountId,
+		identity: T::AccountId,
 	) -> DispatchResult {
-		let worker_info = Workers::<T>::get(&controller).ok_or(Error::<T>::WorkerNotExists)?;
+		let worker_info = Workers::<T>::get(&identity).ok_or(Error::<T>::WorkerNotExists)?;
 		Self::ensure_owner(&who, &worker_info)?;
 
 		let stash = worker_info.stash;
@@ -177,8 +179,11 @@ impl<T: Config> Pallet<T> {
 			ExistenceRequirement::AllowDeath
 		)?;
 
-		Workers::<T>::remove(&controller);
+		Workers::<T>::remove(&identity);
 
+		Self::deposit_event(
+			Event::<T>::Deregistered { identity: identity.clone() }
+		);
 		Ok(())
 	}
 
@@ -189,10 +194,10 @@ impl<T: Config> Pallet<T> {
 		Ok(())
 	}
 
-	fn stash_of<Encodable>(controller: &T::AccountId) -> Encodable
+	fn stash_of<Encodable>(identity: &T::AccountId) -> Encodable
 	where Encodable: Encode + Decode
 	{
-		(b"stash/", controller)
+		(b"stash/", identity)
 			.using_encoded(|b| Encodable::decode(&mut TrailingZeroInput::new(b)))
 			.expect("Decoding zero-padded account id should always succeed; qed")
 	}
