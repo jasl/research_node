@@ -17,7 +17,7 @@ use sp_core::Get;
 use sp_runtime::{
 	traits::{StaticLookup, TrailingZeroInput},
 };
-use crate::types::{WorkerInfo, WorkerStatus};
+use crate::types::{AttestationType, WorkerInfo, WorkerStatus};
 
 type AccountIdLookupOf<T> = <<T as frame_system::Config>::Lookup as StaticLookup>::Source;
 type BalanceOf<T> =
@@ -68,9 +68,9 @@ pub(crate) mod pallet {
 		/// Worker already registered
 		AlreadyRegistered,
 		/// The extrinsic origin isn't the worker's owner
-		NotOwner,
+		NotTheOwner,
 		/// The extrinsic origin isn't the worker's identity
-		Notidentity,
+		NotTheWorker,
 		/// The worker not exists
 		WorkerNotExists,
 	}
@@ -81,9 +81,6 @@ pub(crate) mod pallet {
 	pub type Workers<T: Config> =
 		CountedStorageMap<_, Twox64Concat, T::AccountId, WorkerInfo<T::AccountId>>;
 
-	// Dispatchable functions allows users to interact with the pallet and invoke state changes.
-	// These functions materialize as "extrinsics", which are often compared to transactions.
-	// Dispatchable functions must be annotated with a weight and must return a DispatchResult.
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
 		/// Register a computing workers.
@@ -107,9 +104,11 @@ pub(crate) mod pallet {
 			origin: OriginFor<T>,
 			identity: T::AccountId,
 			initial_deposit: BalanceOf<T>,
+			spec_version: u32,
+			attestation_type: Option<AttestationType>
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-			Self::do_register(who, identity, initial_deposit)
+			Self::do_register(who, identity, initial_deposit, spec_version, attestation_type)
 		}
 
 		/// Deregister a computing workers.
@@ -130,6 +129,8 @@ impl<T: Config> Pallet<T> {
 		who: T::AccountId,
 		identity: T::AccountId,
 		initial_deposit: BalanceOf<T>,
+		spec_version: u32,
+		attestation_type: Option<AttestationType>
 	) -> DispatchResult {
 		ensure!(
 			initial_deposit >= T::ExistentialDeposit::get(),
@@ -147,6 +148,8 @@ impl<T: Config> Pallet<T> {
 			identity: identity.clone(),
 			stash: stash.clone(),
 			status: WorkerStatus::Registered,
+			spec_version,
+			attestation_type,
 		};
 
 		<T as Config>::Currency::transfer(
@@ -190,7 +193,7 @@ impl<T: Config> Pallet<T> {
 	fn ensure_owner(
 		who: &T::AccountId, worker_info: &WorkerInfo<T::AccountId>
 	) -> DispatchResult {
-		ensure!(*who == worker_info.owner, Error::<T>::NotOwner);
+		ensure!(*who == worker_info.owner, Error::<T>::NotTheOwner);
 		Ok(())
 	}
 

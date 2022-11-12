@@ -25,7 +25,9 @@ fn register_worker_for(
 		ComputingWorkers::register(
 			RuntimeOrigin::signed(owner),
 			identity,
-			initial_deposit
+			initial_deposit,
+			0,
+			None
 		)
 	);
 
@@ -54,7 +56,9 @@ fn register_works() {
 			ComputingWorkers::register(
 				RuntimeOrigin::signed(ALICE),
 				ALICE_WORKER,
-				10 * DOLLARS
+				10 * DOLLARS,
+				0,
+				None
 			),
 			Error::<Test>::InitialDepositTooLow
 		);
@@ -63,7 +67,9 @@ fn register_works() {
 			ComputingWorkers::register(
 				RuntimeOrigin::signed(ALICE),
 				ALICE_WORKER,
-				100 * DOLLARS
+				100 * DOLLARS,
+				0,
+				None
 			),
 			Error::<Test>::AlreadyRegistered
 		);
