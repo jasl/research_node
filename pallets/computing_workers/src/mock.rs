@@ -57,7 +57,7 @@ impl frame_system::Config for Test {
 	type DbWeight = ();
 	type Version = ();
 	type PalletInfo = PalletInfo;
-	type AccountData = pallet_balances::AccountData<u128>;
+	type AccountData = pallet_balances::AccountData<Balance>;
 	type OnNewAccount = ();
 	type OnKilledAccount = ();
 	type SystemWeightInfo = ();
@@ -81,7 +81,7 @@ impl pallet_balances::Config for Test {
 impl pallet_computing_workers::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;
-	type ExistentialDeposit = ConstU128<{ 100 * DOLLARS }>;
+	type ReservedDeposit = ConstU128<{ 100 * DOLLARS }>;
 	type AllowNoneAttestation = ConstBool<true>;
 }
 

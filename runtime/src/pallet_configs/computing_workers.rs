@@ -4,6 +4,6 @@ use crate::*;
 impl pallet_computing_workers::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;
-	type ExistentialDeposit = ConstU128<{ 100 * DOLLARS }>;
+	type ReservedDeposit = ConstU128<{ 100 * DOLLARS }>;
 	type AllowNoneAttestation = ConstBool<true>;
 }

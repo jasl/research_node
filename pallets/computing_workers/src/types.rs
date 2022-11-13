@@ -47,7 +47,7 @@ pub enum Attestation {
 
 /// Worker's info.
 #[derive(Encode, Decode, MaxEncodedLen, TypeInfo, RuntimeDebug, Clone, PartialEq, Eq, Default)]
-pub struct WorkerInfo<Account, BlockNumber>
+pub struct WorkerInfo<Account, Balance, BlockNumber>
 	where
 		BlockNumber: PartialEq + Eq + Ord + Decode + Encode
 {
@@ -55,10 +55,8 @@ pub struct WorkerInfo<Account, BlockNumber>
 	pub identity: Account,
 	/// Account that owning the worker.
 	pub owner: Account,
-	/// Account that holds income and slash,
-	/// if its balance lower than `ExistentialDeposit`,
-	/// the registration will be revoked, and remaining balance will return to the owner.
-	pub stash: Account,
+	/// Reserved balance for register.
+	pub reserved: Balance,
 	/// Status
 	pub status: WorkerStatus,
 	/// Not the public version exposed to end users,

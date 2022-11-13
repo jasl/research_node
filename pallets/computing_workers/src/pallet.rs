@@ -8,6 +8,7 @@ use frame_support::{
 	dispatch::DispatchResult,
 	traits::{
 		Currency,
+		ReservableCurrency,
 		ExistenceRequirement,
 	},
 	transactional,
@@ -41,11 +42,13 @@ pub(crate) mod pallet {
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
 		/// The system's currency for payment.
-		type Currency: Currency<Self::AccountId>;
+		type Currency: ReservableCurrency<Self::AccountId>;
+
+
 
 		/// The minimum amount required to keep a worker registration.
 		#[pallet::constant]
-		type ExistentialDeposit: Get<BalanceOf<Self>>;
+		type ReservedDeposit: Get<BalanceOf<Self>>;
 
 		/// Verify attestation
 		///
@@ -86,7 +89,7 @@ pub(crate) mod pallet {
 	#[pallet::storage]
 	#[pallet::getter(fn workers)]
 	pub type Workers<T: Config> =
-		CountedStorageMap<_, Twox64Concat, T::AccountId, WorkerInfo<T::AccountId, T::BlockNumber>>;
+		CountedStorageMap<_, Twox64Concat, T::AccountId, WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>>;
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
@@ -148,8 +151,9 @@ impl<T: Config> Pallet<T> {
 		identity: T::AccountId,
 		initial_deposit: BalanceOf<T>
 	) -> DispatchResult {
+		let initial_reserved_deposit = T::ReservedDeposit::get();
 		ensure!(
-			initial_deposit >= T::ExistentialDeposit::get(),
+			initial_deposit >= initial_reserved_deposit,
 			Error::<T>::InitialDepositTooLow
 		);
 
@@ -158,11 +162,10 @@ impl<T: Config> Pallet<T> {
 			Error::<T>::AlreadyRegistered
 		);
 
-		let stash: T::AccountId = Self::stash_of(&identity);
 		let worker_info = WorkerInfo {
 			owner: who.clone(),
 			identity: identity.clone(),
-			stash: stash.clone(),
+			reserved: initial_reserved_deposit,
 			status: WorkerStatus::Registered,
 			spec_version: 0,
 			attestation_type: None,
@@ -172,9 +175,13 @@ impl<T: Config> Pallet<T> {
 
 		<T as Config>::Currency::transfer(
 			&who,
-			&stash,
+			&identity,
 			initial_deposit,
 			ExistenceRequirement::KeepAlive
+		)?;
+		<T as Config>::Currency::reserve(
+			&identity,
+			initial_reserved_deposit
 		)?;
 
 		Workers::<T>::insert(&identity, worker_info);
@@ -192,11 +199,15 @@ impl<T: Config> Pallet<T> {
 		let worker_info = Workers::<T>::get(&identity).ok_or(Error::<T>::WorkerNotExists)?;
 		Self::ensure_owner(&who, &worker_info)?;
 
-		let stash = worker_info.stash;
+		let reserved = worker_info.reserved;
+		<T as Config>::Currency::unreserve(
+			&identity,
+			reserved
+		);
 		<T as Config>::Currency::transfer(
-			&stash,
+			&identity,
 			&who,
-			<T as Config>::Currency::free_balance(&stash),
+			<T as Config>::Currency::free_balance(&identity),
 			ExistenceRequirement::AllowDeath
 		)?;
 
@@ -209,17 +220,9 @@ impl<T: Config> Pallet<T> {
 	}
 
 	fn ensure_owner(
-		who: &T::AccountId, worker_info: &WorkerInfo<T::AccountId, T::BlockNumber>
+		who: &T::AccountId, worker_info: &WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>
 	) -> DispatchResult {
 		ensure!(*who == worker_info.owner, Error::<T>::NotTheOwner);
 		Ok(())
-	}
-
-	fn stash_of<Encodable>(identity: &T::AccountId) -> Encodable
-	where Encodable: Encode + Decode
-	{
-		(b"stash/", identity)
-			.using_encoded(|b| Encodable::decode(&mut TrailingZeroInput::new(b)))
-			.expect("Decoding zero-padded account id should always succeed; qed")
 	}
 }

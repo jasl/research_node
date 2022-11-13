@@ -18,7 +18,7 @@ fn register_worker_for(
 	owner: AccountId,
 	identity: AccountId,
 	initial_deposit: Balance
-) -> WorkerInfo<AccountId, BlockNumber> {
+) -> WorkerInfo<AccountId, Balance, BlockNumber> {
 	let owner_balance = Balances::free_balance(owner);
 
 	assert_ok!(
@@ -30,12 +30,11 @@ fn register_worker_for(
 	);
 
 	let worker_info = ComputingWorkers::workers(identity).unwrap();
-	let stash = worker_info.stash;
 
 	assert_eq!(worker_info.status, WorkerStatus::Registered);
 	assert_eq!(Balances::free_balance(owner), owner_balance - initial_deposit);
-	assert_eq!(Balances::free_balance(identity), 0);
-	assert_eq!(Balances::free_balance(stash), initial_deposit);
+	assert_eq!(Balances::reserved_balance(identity), worker_info.reserved);
+	assert_eq!(Balances::free_balance(identity), initial_deposit - worker_info.reserved);
 
 	worker_info
 }
@@ -75,8 +74,7 @@ fn deregister_works() {
 	new_test_ext().execute_with(|| {
 		set_balance(ALICE, 101 * DOLLARS, 0);
 
-		let alice_worker = register_worker_for(ALICE, ALICE_WORKER, 100 * DOLLARS);
-		let alice_worker_stash = alice_worker.stash;
+		register_worker_for(ALICE, ALICE_WORKER, 100 * DOLLARS);
 
 		run_to_block(1);
 
@@ -88,7 +86,6 @@ fn deregister_works() {
 		);
 
 		assert_eq!(Balances::free_balance(ALICE), 101 * DOLLARS);
-		assert_eq!(Balances::free_balance(ALICE_WORKER), 0);
-		assert!(!Account::<Test>::contains_key(&alice_worker_stash));
+		assert!(!Account::<Test>::contains_key(ALICE_WORKER));
 	});
 }
