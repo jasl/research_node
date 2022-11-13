@@ -120,24 +120,25 @@ function createSubstrateApi(rpcUrl: string): ApiPromise | null {
   return new ApiPromise({provider, throwOnConnect: true, throwOnUnknown: true});
 }
 
-async function initializeLogger() {
+async function initializeLogger(logPath: string) {
   await log.setup({
     handlers: {
-      console: new log.handlers.ConsoleHandler("NOTSET", {
+      console: new log.handlers.ConsoleHandler("NOTSET"),
+      file: new log.handlers.FileHandler("NOTSET", {
+        filename: path.resolve(path.join(logPath, "computing_worker.log")),
         formatter: rec => JSON.stringify(
           { ts: rec.datetime, topic: rec.loggerName, level: rec.levelName, msg: rec.msg }
         ),
-      }),
+      })
     },
     loggers: {
       default: {
         level: "DEBUG",
         handlers: ["console"],
       },
-
       background: {
         level: "DEBUG",
-        handlers: ["console"],
+        handlers: ["file"],
       },
     },
   });
@@ -153,10 +154,21 @@ if (parsedArgs.version) {
 
 const dataPath = path.resolve(path.join(parsedArgs.workPath, "data"));
 const tempPath = path.resolve(path.join(parsedArgs.workPath, "tmp"));
-await prepareDirectory(dataPath).catch(e => console.error(e));
-await prepareDirectory(tempPath).catch(e => console.error(e));
+const logPath = path.resolve(path.join(parsedArgs.workPath, "log"));
+await prepareDirectory(dataPath).catch(e => {
+  console.error(e);
+  Deno.exit(1);
+});
+await prepareDirectory(tempPath).catch(e => {
+  console.error(e);
+  Deno.exit(1);
+});
+await prepareDirectory(logPath).catch(e => {
+  console.error(e);
+  Deno.exit(1);
+});
 
-await initializeLogger();
+await initializeLogger(logPath);
 
 const keyPair = await loadOrCreateIdentity(dataPath).catch(e => console.error(e));
 if (keyPair === undefined) {

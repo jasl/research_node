@@ -14,3 +14,4 @@ rls*.log
 # !/contracts/**/Cargo.lock
 
 agents/deno/data/
+agents/deno/log/
