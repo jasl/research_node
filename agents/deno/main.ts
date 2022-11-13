@@ -156,26 +156,29 @@ const dataPath = path.resolve(path.join(parsedArgs.workPath, "data"));
 const tempPath = path.resolve(path.join(parsedArgs.workPath, "tmp"));
 const logPath = path.resolve(path.join(parsedArgs.workPath, "log"));
 await prepareDirectory(dataPath).catch(e => {
-  console.error(e);
+  console.error(e.message);
   Deno.exit(1);
 });
 await prepareDirectory(tempPath).catch(e => {
-  console.error(e);
+  console.error(e.message);
   Deno.exit(1);
 });
 await prepareDirectory(logPath).catch(e => {
-  console.error(e);
+  console.error(e.message);
   Deno.exit(1);
 });
 
 await initializeLogger(logPath);
 
-const keyPair = await loadOrCreateIdentity(dataPath).catch(e => console.error(e));
-if (keyPair === undefined) {
+const identityKeyPair = await loadOrCreateIdentity(dataPath).catch(e => {
+  console.error(e.message);
+  Deno.exit(1);
+});
+if (identityKeyPair === undefined) {
   console.error("Can not load or create identity.");
   Deno.exit(1);
 } else {
-  console.log(`Identity: ${keyPair.address}`);
+  console.log(`Identity: ${identityKeyPair.address}`);
 }
 
 const api = createSubstrateApi(parsedArgs.rpcUrl);
@@ -194,6 +197,17 @@ api.on("error", (e) => {
 
 await api.isReady.catch(e => console.error(e));;
 
-console.log(api.genesisHash.toHex());
+const workerInfo =
+  await api.query.computingWorkers.workers(identityKeyPair.address)
+    .catch(e => {
+      console.error(`Read worker info error: ${e.message}`)
+      Deno.exit(1);
+    })
+    .then(v => v === null ? v : v.toJSON());
+
+console.log(workerInfo);
+if (workerInfo.updatedAt === 0) {
+  console.log("The worker hasn't registered")
+}
 
 Deno.exit(0);

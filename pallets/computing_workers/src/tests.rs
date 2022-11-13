@@ -18,7 +18,7 @@ fn register_worker_for(
 	owner: AccountId,
 	identity: AccountId,
 	initial_deposit: Balance
-) -> WorkerInfo<AccountId> {
+) -> WorkerInfo<AccountId, BlockNumber> {
 	let owner_balance = Balances::free_balance(owner);
 
 	assert_ok!(

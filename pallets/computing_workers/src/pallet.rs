@@ -28,6 +28,7 @@ pub(crate) mod pallet {
 	use super::*;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
+	use crate::types::Attestation;
 
 	#[pallet::pallet]
 	#[pallet::generate_store(pub(super) trait Store)]
@@ -45,6 +46,12 @@ pub(crate) mod pallet {
 		/// The minimum amount required to keep a worker registration.
 		#[pallet::constant]
 		type ExistentialDeposit: Get<BalanceOf<Self>>;
+
+		/// Verify attestation
+		///
+		/// SHOULD NOT SET TO TRUE ON PRODUCTION!!!
+		#[pallet::constant]
+		type AllowNoneAttestation: Get<bool>;
 
 		// TODO: type WeightInfo: WeightInfo;
 	}
@@ -79,7 +86,7 @@ pub(crate) mod pallet {
 	#[pallet::storage]
 	#[pallet::getter(fn workers)]
 	pub type Workers<T: Config> =
-		CountedStorageMap<_, Twox64Concat, T::AccountId, WorkerInfo<T::AccountId>>;
+		CountedStorageMap<_, Twox64Concat, T::AccountId, WorkerInfo<T::AccountId, T::BlockNumber>>;
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
@@ -119,6 +126,19 @@ pub(crate) mod pallet {
 			let who = ensure_signed(origin)?;
 			Self::do_deregister(who, identity)
 		}
+
+		/// Initialize a worker, must called by the worker
+		#[pallet::weight(0)]
+		#[transactional]
+		pub fn initialize_worker(
+			origin: OriginFor<T>,
+			spec_version: u32,
+			attestation: Attestation
+		) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+			// TODO:
+			Ok(())
+		}
 	}
 }
 
@@ -146,6 +166,8 @@ impl<T: Config> Pallet<T> {
 			status: WorkerStatus::Registered,
 			spec_version: 0,
 			attestation_type: None,
+			updated_at: T::BlockNumber::default(),
+			expiring_at: T::BlockNumber::default(),
 		};
 
 		<T as Config>::Currency::transfer(
@@ -187,7 +209,7 @@ impl<T: Config> Pallet<T> {
 	}
 
 	fn ensure_owner(
-		who: &T::AccountId, worker_info: &WorkerInfo<T::AccountId>
+		who: &T::AccountId, worker_info: &WorkerInfo<T::AccountId, T::BlockNumber>
 	) -> DispatchResult {
 		ensure!(*who == worker_info.owner, Error::<T>::NotTheOwner);
 		Ok(())

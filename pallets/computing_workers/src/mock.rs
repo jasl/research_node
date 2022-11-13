@@ -3,11 +3,13 @@ use crate as pallet_computing_workers;
 use frame_support::{
 	assert_ok,
 	traits::{
-		ConstU16, ConstU64, ConstU128,
 		OnFinalize, OnInitialize,
 	}
 };
-use sp_core::H256;
+use sp_core::{
+	ConstU16, ConstU64, ConstU128, ConstBool,
+	H256,
+};
 use sp_runtime::{
 	testing::Header,
 	traits::{BlakeTwo256, IdentityLookup},
@@ -80,6 +82,7 @@ impl pallet_computing_workers::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;
 	type ExistentialDeposit = ConstU128<{ 100 * DOLLARS }>;
+	type AllowNoneAttestation = ConstBool<true>;
 }
 
 // Build genesis storage according to the mock runtime.
