@@ -17,7 +17,7 @@ use sp_core::Get;
 use sp_runtime::{
 	traits::{StaticLookup, TrailingZeroInput},
 };
-use crate::types::{AttestationType, WorkerInfo, WorkerStatus};
+use crate::types::{WorkerInfo, WorkerStatus};
 
 type AccountIdLookupOf<T> = <<T as frame_system::Config>::Lookup as StaticLookup>::Source;
 type BalanceOf<T> =
@@ -104,11 +104,9 @@ pub(crate) mod pallet {
 			origin: OriginFor<T>,
 			identity: T::AccountId,
 			initial_deposit: BalanceOf<T>,
-			spec_version: u32,
-			attestation_type: Option<AttestationType>
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-			Self::do_register(who, identity, initial_deposit, spec_version, attestation_type)
+			Self::do_register(who, identity, initial_deposit)
 		}
 
 		/// Deregister a computing workers.
@@ -128,9 +126,7 @@ impl<T: Config> Pallet<T> {
 	fn do_register(
 		who: T::AccountId,
 		identity: T::AccountId,
-		initial_deposit: BalanceOf<T>,
-		spec_version: u32,
-		attestation_type: Option<AttestationType>
+		initial_deposit: BalanceOf<T>
 	) -> DispatchResult {
 		ensure!(
 			initial_deposit >= T::ExistentialDeposit::get(),
@@ -148,8 +144,8 @@ impl<T: Config> Pallet<T> {
 			identity: identity.clone(),
 			stash: stash.clone(),
 			status: WorkerStatus::Registered,
-			spec_version,
-			attestation_type,
+			spec_version: 0,
+			attestation_type: None,
 		};
 
 		<T as Config>::Currency::transfer(

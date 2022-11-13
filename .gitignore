@@ -12,3 +12,5 @@ rls*.log
 
 !/Cargo.lock
 # !/contracts/**/Cargo.lock
+
+agents/deno/data/
