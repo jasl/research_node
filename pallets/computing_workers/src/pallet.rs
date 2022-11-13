@@ -31,8 +31,12 @@ pub(crate) mod pallet {
 	use frame_system::pallet_prelude::*;
 	use crate::types::Attestation;
 
+	/// The current storage version.
+	const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
+
 	#[pallet::pallet]
 	#[pallet::generate_store(pub(super) trait Store)]
+	#[pallet::storage_version(STORAGE_VERSION)]
 	pub struct Pallet<T>(_);
 
 	/// Configure the pallet by specifying the parameters and types on which it depends.
@@ -43,8 +47,6 @@ pub(crate) mod pallet {
 
 		/// The system's currency for payment.
 		type Currency: ReservableCurrency<Self::AccountId>;
-
-
 
 		/// The minimum amount required to keep a worker registration.
 		#[pallet::constant]
