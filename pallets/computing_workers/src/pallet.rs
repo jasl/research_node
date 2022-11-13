@@ -75,6 +75,8 @@ pub(crate) mod pallet {
 	// Errors inform users that something went wrong.
 	#[pallet::error]
 	pub enum Error<T> {
+		/// The own must not the worker it self
+		InvalidOwner,
 		/// Initial deposit for register a worker must equal or above `ExistentialDeposit`
 		InitialDepositTooLow,
 		/// Worker already registered
@@ -153,6 +155,11 @@ impl<T: Config> Pallet<T> {
 		identity: T::AccountId,
 		initial_deposit: BalanceOf<T>
 	) -> DispatchResult {
+		ensure!(
+			who != identity,
+			Error::<T>::InvalidOwner
+		);
+
 		let initial_reserved_deposit = T::ReservedDeposit::get();
 		ensure!(
 			initial_deposit >= initial_reserved_deposit,
