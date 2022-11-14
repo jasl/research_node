@@ -5,6 +5,7 @@ import { sleep } from "https://deno.land/x/sleep/mod.ts";
 import { cryptoWaitReady, mnemonicGenerate } from 'https://deno.land/x/polkadot/util-crypto/mod.ts';
 import { KeyringPair } from 'https://deno.land/x/polkadot/keyring/types.ts';
 import { ApiPromise, WsProvider, HttpProvider, Keyring } from 'https://deno.land/x/polkadot/api/mod.ts';
+import { Application, Router } from "https://deno.land/x/oak/mod.ts";
 
 const VERSION = "v0.0.1-dev";
 const SPEC_VERSION = 1;
@@ -24,12 +25,14 @@ const parsedArgs = parse(Deno.args, {
   ],
   string: [
     "rpcUrl",
+    "bind",
     "port",
     "workPath",
     "ownerPhrase",
   ],
   default: {
     rpcUrl: "ws://127.0.0.1:9944",
+    bind: "127.0.0.1",
     port: "8080",
     workPath: path.dirname(path.fromFileUrl(import.meta.url)),
     help: false,
@@ -163,11 +166,11 @@ async function initializeLogger(logPath: string) {
     },
     loggers: {
       default: {
-        level: "DEBUG",
+        level: "NOTSET",
         handlers: ["console"],
       },
       background: {
-        level: "DEBUG",
+        level: "NOTSET",
         handlers: ["file"],
       },
     },
@@ -272,7 +275,7 @@ if (workerInfo === null) {
     const txHash = await txPromise.signAndSend(ownerKeyPair, { nonce: -1 });
     console.log(`Transaction hash ${txHash.toHex()}`);
 
-    await sleep(6);
+    await sleep(6); // wait a block
 
     workerInfo =
       await api.query.computingWorkers.workers(identityKeyPair.address)
@@ -291,6 +294,31 @@ if (workerInfo === null) {
   }
 }
 
-console.log(workerInfo);
+await api.rpc.chain.subscribeFinalizedHeads(async (header) => {
+  const logger = log.getLogger("background");
+  logger.debug(`Chain is at block: #${header.number}`);
+  console.log(`Chain is at block: #${header.number}`);
 
-Deno.exit(0);
+  // const blockHash = header.hash.toHex();
+  // const apiAt = await api.at(blockHash);
+  // const events = await apiAt.query.system.events();
+  // console.log(events);
+
+  // TODO: Listen balance change, warn low balance
+  // TODO: Listen event relates to the worker
+});
+
+const router = new Router();
+router.get("/", (ctx: any) => {
+  ctx.response.body = "Hello world!";
+});
+
+const app = new Application();
+app.use(router.routes());
+app.use(router.allowedMethods());
+
+app.addEventListener(
+  "listen",
+  (_e: Event) => console.log(`Listening on http://${parsedArgs.bind}:${parsedArgs.port}`),
+);
+await app.listen({ hostname: parsedArgs.bind, port: parsedArgs.port });

@@ -4,7 +4,7 @@ use frame_system::EnsureRoot;
 
 parameter_types! {
 	pub const PreimageMaxSize: u32 = 4096 * 1024;
-	pub const PreimageBaseDeposit: Balance = DOLLARS;
+	pub const PreimageBaseDeposit: Balance = UNITS;
 	// One cent: $10,000 / MB
 	pub const PreimageByteDeposit: Balance = CENTS;
 }
