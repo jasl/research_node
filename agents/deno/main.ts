@@ -294,12 +294,38 @@ if (workerInfo === null) {
   }
 }
 
+declare global {
+  // const identityKeyPair: KeyringPair;
+  // const ownerKeyPair: KeyringPair | null;
+  //
+  // let workerInfo: any;
+  // let currentBlockHash: any;
+  // let currentBlockNumber: any;
+
+  interface Window {
+    identityKeyPair: KeyringPair;
+    ownerKeyPair: KeyringPair | null;
+    workerInfo: any;
+    currentBlockHash: any;
+    currentBlockNumber: any;
+  }
+}
+
+window.identityKeyPair = identityKeyPair;
+window.ownerKeyPair = ownerKeyPair;
+window.workerInfo = workerInfo;
+
+window.currentBlockNumber = 0;
+window.currentBlockHash = "";
+
 await api.rpc.chain.subscribeFinalizedHeads(async (header) => {
   const logger = log.getLogger("background");
   logger.debug(`Chain is at block: #${header.number}`);
-  console.log(`Chain is at block: #${header.number}`);
 
-  // const blockHash = header.hash.toHex();
+  const blockHash = header.hash.toHex();
+  window.currentBlockHash = blockHash;
+  window.currentBlockNumber = header.number;
+
   // const apiAt = await api.at(blockHash);
   // const events = await apiAt.query.system.events();
   // console.log(events);
@@ -309,8 +335,8 @@ await api.rpc.chain.subscribeFinalizedHeads(async (header) => {
 });
 
 const router = new Router();
-router.get("/", (ctx: any) => {
-  ctx.response.body = "Hello world!";
+router.get("/", (ctx) => {
+  ctx.response.body = `${window.currentBlockNumber}`;
 });
 
 const app = new Application();
@@ -319,6 +345,6 @@ app.use(router.allowedMethods());
 
 app.addEventListener(
   "listen",
-  (_e: Event) => console.log(`Listening on http://${parsedArgs.bind}:${parsedArgs.port}`),
+  (_e) => console.log(`Listening on http://${parsedArgs.bind}:${parsedArgs.port}`),
 );
-await app.listen({ hostname: parsedArgs.bind, port: parsedArgs.port });
+await app.listen({ hostname: parsedArgs.bind, port: parsedArgs.port, secure: false });
