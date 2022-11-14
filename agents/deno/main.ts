@@ -65,15 +65,15 @@ async function prepareDirectory(path: string): Promise<boolean> {
 
 function welcome() {
   console.log(
-`Research computing worker implementation in Deno.
+`
+Research computing worker implementation in Deno.
 
 Warning: This is just a prototype implementation,
          in final product, it should be protected by TEE (Trusted Execution Environment) technology,
          which means the app's memories, instructions, and persists data will encrypt by CPU, and only the exact CPU can load them.
          Job deployers' can get an attestation for their job is running in a TEE.
          Without TEE protection, bad job may harm your OS, or you may discover sensitive data,
-         so PLEASE DO NOT USE FOR PRODUCTION.`
-  );
+         so PLEASE DO NOT USE FOR PRODUCTION.`.trim());
 }
 
 function help() {
@@ -408,7 +408,7 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
   const freeWorkerBalance = balanceToNumber(workerBalance.free);
   const workerBalanceThreshold = 10;
   if (freeWorkerBalance < workerBalanceThreshold) {
-    logger.warning(`Work balance insufficient: ${freeWorkerBalance}`);
+    logger.warning(`Worker's free balance nearly exhausted: ${freeWorkerBalance}`);
 
     if (window.ownerKeyPair !== null) {
       const deposit = numberToBalance(workerBalanceThreshold);
