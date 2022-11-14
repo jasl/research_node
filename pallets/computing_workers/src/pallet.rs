@@ -186,7 +186,7 @@ impl<T: Config> Pallet<T> {
 			spec_version: 0,
 			attestation_type: None,
 			updated_at: T::BlockNumber::default(),
-			expiring_at: T::BlockNumber::default(),
+			last_heartbeat_at: T::BlockNumber::default(),
 		};
 
 		<T as Config>::Currency::transfer(
@@ -265,6 +265,7 @@ impl<T: Config> Pallet<T> {
 				_ => return Err(Error::<T>::UnsupportedAttestation.into())
 			};
 		worker_info.updated_at = block_number;
+		worker_info.last_heartbeat_at = block_number;
 		worker_info.status = WorkerStatus::Online;
 
 		Workers::<T>::insert(&who, worker_info);

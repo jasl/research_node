@@ -27,7 +27,10 @@ pub enum WorkerStatus {
 	/// Transit from `RequestingOffline`, `RefreshRegistrationRequired` when job queue cleared,
 	/// and `Online` (when slashing)
 	Offline,
-	/// The worker is pending to deregister
+	/// The worker is pending to deregister,
+	/// It is safe to be deregistered if the worker is `Offline`,
+	/// so this is a placeholder for delayed cleaning.
+	/// Transit from `Offline` and `RefreshRegistrationRequired` and `Registered`
 	Deregistering,
 }
 
@@ -72,7 +75,6 @@ pub struct WorkerInfo<Account, Balance, BlockNumber> {
 	/// A block number of when the worker update the info.
 	/// It may be 0 in case the worker hasn't submit
 	pub updated_at: BlockNumber,
-	/// A block number of when the worker's info expires.
-	/// The worker must refresh the info before the block
-	pub expiring_at: BlockNumber,
+	/// A block number of when the worker send heartbeat
+	pub last_heartbeat_at: BlockNumber,
 }

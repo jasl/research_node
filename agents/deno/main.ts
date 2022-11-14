@@ -164,7 +164,7 @@ function createSubstrateApi(rpcUrl: string): ApiPromise | null {
         spec_version: "u32",
         attestation_type: "Option<AttestationType>",
         updated_at: "BlockNumber",
-        expiring_at: "BlockNumber",
+        last_heartbeat_at: "BlockNumber",
       },
     },
   });
