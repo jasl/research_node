@@ -13,11 +13,8 @@ use frame_support::{
 	},
 	transactional,
 };
-use scale_codec::{Decode, Encode};
 use sp_core::Get;
-use sp_runtime::{
-	traits::{StaticLookup, TrailingZeroInput},
-};
+use sp_runtime::traits::StaticLookup;
 use crate::types::{WorkerInfo, WorkerStatus};
 
 type AccountIdLookupOf<T> = <<T as frame_system::Config>::Lookup as StaticLookup>::Source;
@@ -67,9 +64,9 @@ pub(crate) mod pallet {
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
 		/// The worker registered successfully
-		Registered { identity: T::AccountId },
+		Registered { worker: T::AccountId },
 		/// The worker registered successfully
-		Deregistered { identity: T::AccountId },
+		Deregistered { worker: T::AccountId },
 	}
 
 	// Errors inform users that something went wrong.
@@ -83,7 +80,7 @@ pub(crate) mod pallet {
 		AlreadyRegistered,
 		/// The extrinsic origin isn't the worker's owner
 		NotTheOwner,
-		/// The extrinsic origin isn't the worker's identity
+		/// The extrinsic origin isn't the worker
 		NotTheWorker,
 		/// The worker not exists
 		WorkerNotExists,
@@ -101,7 +98,7 @@ pub(crate) mod pallet {
 		///
 		/// ## Arguments
 		/// - `origin`: Must be called by a `Signed` origin, it will become the worker's owner.
-		/// - `identity`: The account who operate the worker. a identity can only manage one worker.
+		/// - `worker`: The worker.
 		/// - `initial_deposit`: Initial deposit amount.
 		///
 		/// ## Deposits/Fees
@@ -116,11 +113,11 @@ pub(crate) mod pallet {
 		#[transactional]
 		pub fn register(
 			origin: OriginFor<T>,
-			identity: T::AccountId,
+			worker: T::AccountId,
 			initial_deposit: BalanceOf<T>,
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-			Self::do_register(who, identity, initial_deposit)
+			Self::do_register(who, worker, initial_deposit)
 		}
 
 		/// Deregister a computing workers.
@@ -128,10 +125,10 @@ pub(crate) mod pallet {
 		#[transactional]
 		pub fn deregister(
 			origin: OriginFor<T>,
-			identity: T::AccountId,
+			worker: T::AccountId,
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-			Self::do_deregister(who, identity)
+			Self::do_deregister(who, worker)
 		}
 
 		/// Initialize a worker, must called by the worker
@@ -152,11 +149,11 @@ pub(crate) mod pallet {
 impl<T: Config> Pallet<T> {
 	fn do_register(
 		who: T::AccountId,
-		identity: T::AccountId,
+		worker: T::AccountId,
 		initial_deposit: BalanceOf<T>
 	) -> DispatchResult {
 		ensure!(
-			who != identity,
+			who != worker,
 			Error::<T>::InvalidOwner
 		);
 
@@ -167,13 +164,13 @@ impl<T: Config> Pallet<T> {
 		);
 
 		ensure!(
-			!Workers::<T>::contains_key(&identity),
+			!Workers::<T>::contains_key(&worker),
 			Error::<T>::AlreadyRegistered
 		);
 
 		let worker_info = WorkerInfo {
+			account: worker.clone(),
 			owner: who.clone(),
-			identity: identity.clone(),
 			reserved: initial_reserved_deposit,
 			status: WorkerStatus::Registered,
 			spec_version: 0,
@@ -184,46 +181,46 @@ impl<T: Config> Pallet<T> {
 
 		<T as Config>::Currency::transfer(
 			&who,
-			&identity,
+			&worker,
 			initial_deposit,
 			ExistenceRequirement::KeepAlive
 		)?;
 		<T as Config>::Currency::reserve(
-			&identity,
+			&worker,
 			initial_reserved_deposit
 		)?;
 
-		Workers::<T>::insert(&identity, worker_info);
+		Workers::<T>::insert(&worker, worker_info);
 
 		Self::deposit_event(
-			Event::<T>::Registered { identity: identity.clone() }
+			Event::<T>::Registered { worker: worker.clone() }
 		);
 		Ok(())
 	}
 
 	fn do_deregister(
 		who: T::AccountId,
-		identity: T::AccountId,
+		worker: T::AccountId,
 	) -> DispatchResult {
-		let worker_info = Workers::<T>::get(&identity).ok_or(Error::<T>::WorkerNotExists)?;
+		let worker_info = Workers::<T>::get(&worker).ok_or(Error::<T>::WorkerNotExists)?;
 		Self::ensure_owner(&who, &worker_info)?;
 
 		let reserved = worker_info.reserved;
 		<T as Config>::Currency::unreserve(
-			&identity,
+			&worker,
 			reserved
 		);
 		<T as Config>::Currency::transfer(
-			&identity,
+			&worker,
 			&who,
-			<T as Config>::Currency::free_balance(&identity),
+			<T as Config>::Currency::free_balance(&worker),
 			ExistenceRequirement::AllowDeath
 		)?;
 
-		Workers::<T>::remove(&identity);
+		Workers::<T>::remove(&worker);
 
 		Self::deposit_event(
-			Event::<T>::Deregistered { identity: identity.clone() }
+			Event::<T>::Deregistered { worker: worker.clone() }
 		);
 		Ok(())
 	}
@@ -232,6 +229,13 @@ impl<T: Config> Pallet<T> {
 		who: &T::AccountId, worker_info: &WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>
 	) -> DispatchResult {
 		ensure!(*who == worker_info.owner, Error::<T>::NotTheOwner);
+		Ok(())
+	}
+
+	fn ensure_worker(
+		who: &T::AccountId, worker_info: &WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>
+	) -> DispatchResult {
+		ensure!(*who == worker_info.account, Error::<T>::NotTheWorker);
 		Ok(())
 	}
 }

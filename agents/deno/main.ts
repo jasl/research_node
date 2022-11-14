@@ -88,7 +88,7 @@ function version() {
 }
 
 function loadOrCreateWorkerKeyPair(dataPath: string): KeyringPair | null {
-  const secretFile = path.join(dataPath, "identity.secret");
+  const secretFile = path.join(dataPath, "worker.secret");
   const keyPair = (() => {
     try {
       const mnemonic = Deno.readTextFileSync(secretFile).trim();
@@ -140,7 +140,7 @@ function createSubstrateApi(rpcUrl: string): ApiPromise | null {
         ],
       },
       WorkerInfo: {
-        identity: "AccountId",
+        account: "AccountId",
         owner: "AccountId",
         reserved: "Balance",
         status: "WorkerStatus",
@@ -236,10 +236,10 @@ await cryptoWaitReady().catch(e => {
 
 const workerKeyPair = loadOrCreateWorkerKeyPair(dataPath);
 if (workerKeyPair === null) {
-  console.error("Can not load or create identity.");
+  console.error("Can not load or create the worker wallet.");
   Deno.exit(1);
 } else {
-  console.log(`Worker identity: ${workerKeyPair.address}`);
+  console.log(`Worker address: ${workerKeyPair.address}`);
 }
 
 const ownerKeyPair = (() => {

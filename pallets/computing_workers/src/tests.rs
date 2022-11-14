@@ -16,7 +16,7 @@ const BOB_WORKER: AccountId = 4;
 
 fn register_worker_for(
 	owner: AccountId,
-	identity: AccountId,
+	worker: AccountId,
 	initial_deposit: Balance
 ) -> WorkerInfo<AccountId, Balance, BlockNumber> {
 	let owner_balance = Balances::free_balance(owner);
@@ -24,17 +24,17 @@ fn register_worker_for(
 	assert_ok!(
 		ComputingWorkers::register(
 			RuntimeOrigin::signed(owner),
-			identity,
+			worker,
 			initial_deposit
 		)
 	);
 
-	let worker_info = ComputingWorkers::workers(identity).unwrap();
+	let worker_info = ComputingWorkers::workers(worker).unwrap();
 
 	assert_eq!(worker_info.status, WorkerStatus::Registered);
 	assert_eq!(Balances::free_balance(owner), owner_balance - initial_deposit);
-	assert_eq!(Balances::reserved_balance(identity), worker_info.reserved);
-	assert_eq!(Balances::free_balance(identity), initial_deposit - worker_info.reserved);
+	assert_eq!(Balances::reserved_balance(worker), worker_info.reserved);
+	assert_eq!(Balances::free_balance(worker), initial_deposit - worker_info.reserved);
 
 	worker_info
 }
