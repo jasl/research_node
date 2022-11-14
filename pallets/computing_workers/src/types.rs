@@ -10,16 +10,21 @@ use sp_runtime::RuntimeDebug;
 pub enum WorkerStatus {
 	/// Initial status for a new registered worker.
 	Registered,
-	/// The worker's info expired that need to refresh
+	/// The worker's info expired that need to do a refreshing,
+	/// the worker won't accept new job, accepted jobs will still processing.
+	/// Transit from `Online`
 	RefreshRegistrationRequired,
-	/// The worker is under maintaining so it can't accept job.
-	/// Transit from `Online`, `Offline`
-	Maintaining,
+	/// The worker is requesting offline,
+	/// the worker won't accept new job, accepted jobs will still processing,
+	/// when accepted jobs processed it can be transited to `Offline` safely without slashing.
+	/// Transit from `Online`
+	RequestingOffline,
 	/// The worker is online so it can accept job
-	/// Transit from `Registered`, `RefreshRegistrationRequired`, `Offline`, `Maintaining`
+	/// Transit from `Registered`, `Offline`, `RefreshRegistrationRequired`,
+	/// not sure `RequestingOffline`
 	Online,
 	/// The worker is offline so it can't accept job.
-	/// Transit from `Online`
+	/// Transit from `RequestingOffline`, and `Online` (when slashing)
 	Offline,
 	/// The worker is pending to deregister
 	Deregistering,
