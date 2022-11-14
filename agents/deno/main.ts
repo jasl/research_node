@@ -374,6 +374,8 @@ router.get("/", (ctx) => {
     workerAddress: window.workerKeyPair.address,
     workerPublicKey: u8aToHex(window.workerKeyPair.publicKey),
     workerStatus: window.workerStatus,
+    version: VERSION,
+    specVersion: SPEC_VERSION,
   };
 });
 
