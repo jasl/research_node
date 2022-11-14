@@ -7,6 +7,7 @@ import { cryptoWaitReady, mnemonicGenerate } from 'https://deno.land/x/polkadot/
 import { KeyringPair } from 'https://deno.land/x/polkadot/keyring/types.ts';
 import { ApiPromise, WsProvider, HttpProvider, Keyring } from 'https://deno.land/x/polkadot/api/mod.ts';
 import { Application, Router } from "https://deno.land/x/oak/mod.ts";
+import a from "https://esm.sh/v98/@noble/hashes@1.1.3/deno/_assert.js";
 
 const VERSION = "v0.0.1-dev";
 const SPEC_VERSION = 1;
@@ -154,6 +155,16 @@ function createSubstrateApi(rpcUrl: string): ApiPromise | null {
   });
 }
 
+enum WorkerStatus {
+  Unregistered = "Unregistered",
+  Registered = "Registered",
+  RefreshRegistrationRequired = "RefreshRegistrationRequired",
+  RequestingOffline = "RequestingOffline",
+  Online = "Online",
+  Offline = "Offline",
+  Deregistering = "Deregistering",
+}
+
 async function initializeLogger(logPath: string) {
   // logger not write to log instantly, need explict call `logger.handlers[0].flush()`
   await log.setup({
@@ -173,7 +184,7 @@ async function initializeLogger(logPath: string) {
       },
       background: {
         level: "NOTSET",
-        handlers: ["file"],
+        handlers: ["file", "console"],
       },
     },
   });
@@ -266,54 +277,26 @@ api.on("error", (e) => {
 
 await api.isReady.catch(e => console.error(e));
 
-let workerInfo =
-  await api.query.computingWorkers.workers(workerKeyPair.address)
-    .catch(e => {
-      console.error(`Read worker info error: ${e.message}`)
-      Deno.exit(1);
-    })
-    .then(v => v === null || v === undefined ? null : v.toJSON());
-
-if (workerInfo === null) {
-  console.log("Worker hasn't registered");
-
-  if (ownerKeyPair !== null) {
-    console.log("Sending `computing_workers.register` transaction...");
-    const initialDeposit = numberToBalance(150);
-    const txPromise = api.tx.computingWorkers.register(workerKeyPair.address, initialDeposit);
-    console.debug(`Call hash: ${txPromise.toHex()}`);
-    const txHash = await txPromise.signAndSend(ownerKeyPair, { nonce: -1 });
-    console.log(`Transaction hash: ${txHash.toHex()}`);
-
-    await sleep(6); // wait a block
-
-    workerInfo =
-      await api.query.computingWorkers.workers(workerKeyPair.address)
-        .catch(e => {
-          console.error(`Read worker info error: ${e.message}`)
-          Deno.exit(1);
-        })
-        .then(v => v === null || v === undefined ? null : v.toJSON());
-
-    if (workerInfo === null) {
-      console.error("Register worker failed.");
-      Deno.exit(1);
-    } else {
-      console.log("Worker has registered.");
-    }
-  }
-}
-
 declare global {
+  interface Locals{
+    sent_register_at: bigint | undefined,
+    sent_initialize_at: bigint | undefined,
+  }
+
   interface Window {
     workerKeyPair: KeyringPair;
     ownerKeyPair: KeyringPair | null;
     substrateApi: ApiPromise;
 
-    currentBlockHash: string;
-    currentBlockNumber: bigint;
+    finalizedBlockHash: string;
+    finalizedBlockNumber: bigint;
 
-    workerStatus: string;
+    latestBlockHash: string;
+    latestBlockNumber: bigint;
+
+    workerStatus: WorkerStatus;
+
+    locals: Locals;
   }
 }
 
@@ -321,26 +304,67 @@ window.workerKeyPair = workerKeyPair;
 window.ownerKeyPair = ownerKeyPair;
 window.substrateApi = api;
 
-window.currentBlockNumber = 0;
-window.currentBlockHash = "";
+window.finalizedBlockNumber = 0;
+window.finalizedBlockHash = "";
 
-window.workerStatus = workerInfo.status;
+window.latestBlockNumber = 0;
+window.latestBlockHash = "";
 
-await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (header) => {
+window.workerStatus = "Unregistered";
+
+window.locals = {};
+
+await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHeader) => {
   const logger = log.getLogger("background");
-  logger.debug(`Chain is at block: #${header.number}`);
-
-  const blockHash = header.hash.toHex();
-  window.currentBlockHash = blockHash;
-  window.currentBlockNumber = header.number;
-
   const api = window.substrateApi;
-  const apiAt = await window.substrateApi.at(blockHash);
 
+  const finalizedBlockHash = finalizedHeader.hash.toHex();
+  const finalizedBlockNumber = finalizedHeader.number.toNumber();
+
+  const latestHeader = await api.rpc.chain.getHeader();
+  const latestBlockHash = latestHeader.hash.toHex();
+  const latestBlockNumber = latestHeader.number.toNumber();
+
+  window.finalizedBlockHash = finalizedBlockHash;
+  window.finalizedBlockNumber = finalizedBlockNumber;
+  window.latestBlockHash = latestBlockHash;
+  window.latestBlockNumber = latestBlockNumber;
+
+  logger.debug(`best: #${latestBlockNumber} (${latestBlockHash}), finalized #${finalizedBlockNumber} (${finalizedBlockHash})`);
+
+  const apiAt = await api.at(finalizedBlockHash);
   const [workerInfo, { data: workerBalance }] = await Promise.all([
     apiAt.query.computingWorkers.workers(window.workerKeyPair.address).then(v => v === null || v === undefined ? null : v.toJSON()),
     apiAt.query.system.account(window.workerKeyPair.address)
   ]);
+
+  if (workerInfo === null) {
+    if (window.locals.sent_register_at && window.locals.sent_register_at >= finalizedBlockNumber) {
+      logger.debug("Waiting register extrinsic finalize");
+
+      return;
+    }
+
+    logger.warning("Worker hasn't registered");
+
+    if (ownerKeyPair !== null) {
+      const initialDeposit = numberToBalance(150);
+      logger.info(`Sending "computing_workers.register('${workerKeyPair.address}', '${initialDeposit}')"`);
+      const txPromise = api.tx.computingWorkers.register(workerKeyPair.address, initialDeposit);
+      logger.debug(`Call hash: ${txPromise.toHex()}`);
+      const txHash = await txPromise.signAndSend(ownerKeyPair, { nonce: -1 });
+      logger.info(`Transaction hash: ${txHash.toHex()}`);
+
+      window.locals.sent_register_at = latestBlockNumber;
+    }
+
+    return;
+  }
+
+  if (window.workerStatus === "Unregistered" && window.locals.sent_register_at) {
+    logger.info("Worker has registered.");
+    window.locals.sent_register_at = undefined;
+  }
 
   window.workerStatus = workerInfo.status;
 
@@ -351,14 +375,12 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (header) => {
     logger.warning(`Work balance insufficient: ${freeWorkerBalance}`);
 
     if (window.ownerKeyPair !== null) {
-      logger.info("topping up from the owner wallet");
-
-      const txPromise = api.tx.balances.transferKeepAlive(
-        workerKeyPair.address, numberToBalance(workerBalanceThreshold)
-      );
-      console.debug(`Call hash: ${txPromise.toHex()}`);
+      const deposit = numberToBalance(workerBalanceThreshold);
+      logger.info(`Sending "balances.transferKeepAlive('${workerKeyPair.address}', '${deposit}')"`);
+      const txPromise = api.tx.balances.transferKeepAlive(workerKeyPair.address, deposit);
+      logger.debug(`Call hash: ${txPromise.toHex()}`);
       const txHash = await txPromise.signAndSend(ownerKeyPair, { nonce: -1 });
-      console.log(`Transaction hash: ${txHash.toHex()}`);
+      logger.log(`Transaction hash: ${txHash.toHex()}`);
     }
   }
 
@@ -369,8 +391,10 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (header) => {
 const router = new Router();
 router.get("/", (ctx) => {
   ctx.response.body = {
-    currentBlockNumber: window.currentBlockNumber,
-    currentBlockHash: window.currentBlockHash,
+    latestBlockNumber: window.latestBlockNumber,
+    latestBlockHash: window.latestBlockHash,
+    finalizedBlockNumber: window.finalizedBlockNumber,
+    finalizedBlockHash: window.finalizedBlockHash,
     workerAddress: window.workerKeyPair.address,
     workerPublicKey: u8aToHex(window.workerKeyPair.publicKey),
     workerStatus: window.workerStatus,
