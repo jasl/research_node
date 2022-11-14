@@ -1,12 +1,13 @@
 import { parse } from "https://deno.land/std/flags/mod.ts";
 import * as log from "https://deno.land/std/log/mod.ts";
 import * as path from "https://deno.land/std/path/mod.ts";
-import { BN, hexToU8a, u8aToHex, isHex } from 'https://deno.land/x/polkadot/util/mod.ts';
-import { cryptoWaitReady, mnemonicGenerate } from 'https://deno.land/x/polkadot/util-crypto/mod.ts';
-import { KeyringPair } from 'https://deno.land/x/polkadot/keyring/types.ts';
-import { ApiPromise, WsProvider, HttpProvider, Keyring } from 'https://deno.land/x/polkadot/api/mod.ts';
+import { BN, hexToU8a, isHex, u8aToHex } from "https://deno.land/x/polkadot/util/mod.ts";
+import { cryptoWaitReady, mnemonicGenerate } from "https://deno.land/x/polkadot/util-crypto/mod.ts";
+import { KeyringPair } from "https://deno.land/x/polkadot/keyring/types.ts";
+import { ApiPromise, HttpProvider, Keyring, WsProvider } from "https://deno.land/x/polkadot/api/mod.ts";
 import { Application, Router } from "https://deno.land/x/oak/mod.ts";
 
+const IMPL_NAME = "Research computing worker";
 const VERSION = "v0.0.1-dev";
 const SPEC_VERSION = 1;
 
@@ -17,7 +18,7 @@ const parsedArgs = parse(Deno.args, {
     "port": "p",
     "rpcUrl": "rpc-url",
     "workPath": "work-path",
-    "ownerPhrase": "owner-phrase"
+    "ownerPhrase": "owner-phrase",
   },
   boolean: [
     "help",
@@ -64,26 +65,25 @@ async function prepareDirectory(path: string): Promise<boolean> {
 }
 
 function welcome() {
-  console.log(
-`
-Research computing worker implementation in Deno.
+  console.log(`
+${IMPL_NAME} implementation in Deno.
 
 Warning: This is just a prototype implementation,
          in final product, it should be protected by TEE (Trusted Execution Environment) technology,
          which means the app's memories, instructions, and persists data will encrypt by CPU, and only the exact CPU can load them.
          Job deployers' can get an attestation for their job is running in a TEE.
          Without TEE protection, bad job may harm your OS, or you may discover sensitive data,
-         so PLEASE DO NOT USE FOR PRODUCTION.`.trim());
+         so PLEASE DO NOT USE FOR PRODUCTION.
+         `.trim());
 }
 
 function help() {
-  console.log(
-`
+  console.log(`
 Usage: deno run ./app.ts [OPTIONS]
 
 Options:
     --rpc-url <WS_OR_HTTP_NODE_RPC_ENDPOINT>
-      The RPC endpoint URL of Research node, default is "ws://127.0.0.1:9944"
+      The RPC endpoint URL of Substrate node, default is "ws://127.0.0.1:9944"
     --work-path <PATH>
       The work path of the app, default is the app located path
     --owner-phrase <PHRASE>
@@ -92,12 +92,11 @@ Options:
     --version
       Show version info.
     --help
-`
-  );
+`.trim());
 }
 
 function version() {
-  console.log(`Research computing worker ${VERSION} (${SPEC_VERSION})`);
+  console.log(`${IMPL_NAME} ${VERSION} (${SPEC_VERSION})`);
 }
 
 function loadOrCreateWorkerKeyPair(dataPath: string): KeyringPair | null {
@@ -106,13 +105,13 @@ function loadOrCreateWorkerKeyPair(dataPath: string): KeyringPair | null {
     try {
       const mnemonic = Deno.readTextFileSync(secretFile).trim();
 
-      return new Keyring({type: 'sr25519'}).addFromUri(mnemonic, { name: "Worker" });
+      return new Keyring({ type: "sr25519" }).addFromUri(mnemonic, { name: "Worker" });
     } catch (e) {
       if (e instanceof Deno.errors.NotFound) {
         const mnemonic = mnemonicGenerate(12);
         Deno.writeTextFileSync(secretFile, mnemonic);
 
-        return new Keyring({type: 'sr25519'}).addFromUri(mnemonic, { name: "Worker" });
+        return new Keyring({ type: "sr25519" }).addFromUri(mnemonic, { name: "Worker" });
       }
 
       return null;
@@ -149,7 +148,12 @@ function createSubstrateApi(rpcUrl: string): ApiPromise | null {
       },
       WorkerStatus: {
         _enum: [
-          "Registered", "RefreshRegistrationRequired", "Maintaining", "Online", "Offline", "Deregistering"
+          "Registered",
+          "RefreshRegistrationRequired",
+          "Maintaining",
+          "Online",
+          "Offline",
+          "Deregistering",
         ],
       },
       WorkerInfo: {
@@ -161,8 +165,8 @@ function createSubstrateApi(rpcUrl: string): ApiPromise | null {
         attestation_type: "Option<AttestationType>",
         updated_at: "BlockNumber",
         expiring_at: "BlockNumber",
-      }
-    }
+      },
+    },
   });
 }
 
@@ -183,10 +187,11 @@ async function initializeLogger(logPath: string) {
       console: new log.handlers.ConsoleHandler("NOTSET"),
       file: new log.handlers.FileHandler("NOTSET", {
         filename: path.resolve(path.join(logPath, "computing_worker.log")),
-        formatter: rec => JSON.stringify(
-          { ts: rec.datetime, topic: rec.loggerName, level: rec.levelName, msg: rec.msg }
-        ),
-      })
+        formatter: (rec) =>
+          JSON.stringify(
+            { ts: rec.datetime, topic: rec.loggerName, level: rec.levelName, msg: rec.msg },
+          ),
+      }),
     },
     loggers: {
       default: {
@@ -218,34 +223,36 @@ if (parsedArgs.version) {
   Deno.exit(0);
 } else if (parsedArgs.help) {
   welcome();
-  help()
+  console.log("");
+  help();
   Deno.exit(0);
 } else {
   welcome();
+  console.log("");
 }
 
 const dataPath = path.resolve(path.join(parsedArgs.workPath, "data"));
 const tempPath = path.resolve(path.join(parsedArgs.workPath, "tmp"));
 const logPath = path.resolve(path.join(parsedArgs.workPath, "log"));
-await prepareDirectory(dataPath).catch(e => {
+await prepareDirectory(dataPath).catch((e) => {
   console.error(e.message);
   Deno.exit(1);
 });
-await prepareDirectory(tempPath).catch(e => {
+await prepareDirectory(tempPath).catch((e) => {
   console.error(e.message);
   Deno.exit(1);
 });
-await prepareDirectory(logPath).catch(e => {
-  console.error(e.message);
-  Deno.exit(1);
-});
-
-await initializeLogger(logPath).catch(e => {
+await prepareDirectory(logPath).catch((e) => {
   console.error(e.message);
   Deno.exit(1);
 });
 
-await cryptoWaitReady().catch(e => {
+await initializeLogger(logPath).catch((e) => {
+  console.error(e.message);
+  Deno.exit(1);
+});
+
+await cryptoWaitReady().catch((e) => {
   console.error(e.message);
   Deno.exit(1);
 });
@@ -265,7 +272,7 @@ const ownerKeyPair = (() => {
   }
 
   try {
-    return new Keyring({type: 'sr25519'}).addFromUri(ownerPhrase, { name: "The owner" });
+    return new Keyring({ type: "sr25519" }).addFromUri(ownerPhrase, { name: "The owner" });
   } catch (e) {
     console.error(`Owner phrase invalid: ${e.message}`);
     return null;
@@ -283,17 +290,17 @@ if (api === null) {
 
 api.on("error", (e) => {
   const logger = log.getLogger("background");
-  logger.error(e.message)
+  logger.error(e.message);
 
   console.error(`Polkadot.js error: ${e.message}"`);
-  Deno.exit(1)
-})
+  Deno.exit(1);
+});
 
-await api.isReady.catch(e => console.error(e));
+await api.isReady.catch((e) => console.error(e));
 
 interface Locals {
-  sent_register_at?: number,
-  sent_initialize_at?: number,
+  sent_register_at?: number;
+  sent_initialize_at?: number;
 }
 
 declare global {
@@ -344,12 +351,16 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
   window.latestBlockHash = latestBlockHash;
   window.latestBlockNumber = latestBlockNumber;
 
-  logger.debug(`best: #${latestBlockNumber} (${latestBlockHash}), finalized #${finalizedBlockNumber} (${finalizedBlockHash})`);
+  logger.debug(
+    `best: #${latestBlockNumber} (${latestBlockHash}), finalized #${finalizedBlockNumber} (${finalizedBlockHash})`,
+  );
 
   const apiAt = await api.at(finalizedBlockHash);
   const [workerInfo, { data: workerBalance }] = await Promise.all([
-    apiAt.query.computingWorkers.workers(window.workerKeyPair.address).then(v => v === null || v === undefined ? null : v.toJSON()),
-    apiAt.query.system.account(window.workerKeyPair.address)
+    apiAt.query.computingWorkers.workers(window.workerKeyPair.address).then((v) =>
+      v === null || v === undefined ? null : v.toJSON()
+    ),
+    apiAt.query.system.account(window.workerKeyPair.address),
   ]);
 
   if (workerInfo === null || workerInfo === undefined) {
@@ -379,7 +390,7 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
     return;
   }
 
-  if (workerInfo.status === WorkerStatus.Registered ) {
+  if (workerInfo.status === WorkerStatus.Registered) {
     if (window.locals.sent_initialize_at && window.locals.sent_initialize_at >= finalizedBlockNumber) {
       logger.debug("Waiting initialization extrinsic finalize");
 
@@ -427,7 +438,7 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
     // }
 
     console.log(event.toHuman());
-  })
+  });
 });
 
 const router = new Router();
