@@ -397,8 +397,8 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
       return;
     }
 
-    logger.info(`Sending "computing_workers.initialize_worker(${SPEC_VERSION}, None)`);
-    const txPromise = api.tx.computingWorkers.initializeWorker(SPEC_VERSION, null);
+    logger.info(`Sending "computing_workers.initialize(${SPEC_VERSION}, None)`);
+    const txPromise = api.tx.computingWorkers.initialize(SPEC_VERSION, null);
     logger.debug(`Call hash: ${txPromise.toHex()}`);
     const txHash = await txPromise.signAndSend(window.workerKeyPair, { nonce: -1 });
     logger.info(`Transaction hash: ${txHash.toHex()}`);

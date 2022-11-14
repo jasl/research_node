@@ -68,6 +68,8 @@ pub(crate) mod pallet {
 		Deregistered { worker: T::AccountId },
 		/// The worker initialized successfully
 		Initialized { worker: T::AccountId },
+		/// The worker send heartbeat successfully
+		StillOnline { worker: T::AccountId },
 	}
 
 	// Errors inform users that something went wrong.
@@ -143,14 +145,14 @@ pub(crate) mod pallet {
 		/// Initialize a worker, must called by the worker
 		#[pallet::weight(0)]
 		#[transactional]
-		pub fn initialize_worker(
+		pub fn initialize(
 			origin: OriginFor<T>,
 			spec_version: u32,
 			attestation: Option<Attestation>
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-			Self::do_initialize_worker(
-				who, spec_version, attestation, frame_system::Pallet::<T>::block_number()
+			Self::do_initialize(
+				who, spec_version, attestation
 			)
 		}
 	}
@@ -239,11 +241,10 @@ impl<T: Config> Pallet<T> {
 		Ok(())
 	}
 
-	pub fn do_initialize_worker(
+	pub fn do_initialize(
 		who: T::AccountId,
 		spec_version: u32,
 		attestation: Option<Attestation>,
-		block_number: T::BlockNumber,
 	) -> DispatchResult {
 		ensure!(
 			!T::DisallowNoneAttestation::get() || attestation.is_some(),
@@ -264,6 +265,8 @@ impl<T: Config> Pallet<T> {
 				// TODO: verify attestation
 				_ => return Err(Error::<T>::UnsupportedAttestation.into())
 			};
+
+		let block_number = frame_system::Pallet::<T>::block_number();
 		worker_info.updated_at = block_number;
 		worker_info.last_heartbeat_at = block_number;
 		worker_info.status = WorkerStatus::Online;

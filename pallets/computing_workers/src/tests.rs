@@ -91,7 +91,7 @@ fn deregister_works() {
 }
 
 #[test]
-fn initialize_worker_works() {
+fn initialize_works() {
 	new_test_ext().execute_with(|| {
 		set_balance(ALICE, 102 * DOLLARS, 0);
 
@@ -100,7 +100,7 @@ fn initialize_worker_works() {
 		run_to_block(1);
 
 		assert_ok!(
-			ComputingWorkers::initialize_worker(
+			ComputingWorkers::initialize(
 				RuntimeOrigin::signed(ALICE_WORKER),
 				1,
 				None
