@@ -63,24 +63,36 @@ async function prepareDirectory(path: string): Promise<boolean> {
   return Promise.resolve(true);
 }
 
+function welcome() {
+  console.log(
+`Research computing worker implementation in Deno.
+
+Warning: This is just a prototype implementation,
+         in final product, it should be protected by TEE (Trusted Execution Environment) technology,
+         which means the app's memories, instructions, and persists data will encrypt by CPU, and only the exact CPU can load them.
+         Job deployers' can get an attestation for their job is running in a TEE.
+         Without TEE protection, bad job may harm your OS, or you may discover sensitive data,
+         so PLEASE DO NOT USE FOR PRODUCTION.`
+  );
+}
+
 function help() {
   console.log(
-    `Research computing worker implementation in Deno.
-    
-    Usage: deno run ./app.ts [OPTIONS]
-    
-    Options:
-        --rpc-url <WS_OR_HTTP_NODE_RPC_ENDPOINT>
-          The RPC endpoint URL of Research node, default is "ws://127.0.0.1:9944"
-        --work-path <PATH>
-          The work path of the app, default is the app located path
-        --owner-phrase <PHRASE>
-          Inject the owner wallet, will enable some shortcuts (e.g. auto do register if it hasn't).
-          WARNING: Keep safe of your owner wallet
-        --version
-          Show version info.
-        --help
-    `
+`
+Usage: deno run ./app.ts [OPTIONS]
+
+Options:
+    --rpc-url <WS_OR_HTTP_NODE_RPC_ENDPOINT>
+      The RPC endpoint URL of Research node, default is "ws://127.0.0.1:9944"
+    --work-path <PATH>
+      The work path of the app, default is the app located path
+    --owner-phrase <PHRASE>
+      Inject the owner wallet, will enable some shortcuts (e.g. auto do register if it hasn't).
+      WARNING: Keep safe of your owner wallet
+    --version
+      Show version info.
+    --help
+`
   );
 }
 
@@ -205,8 +217,11 @@ if (parsedArgs.version) {
   version();
   Deno.exit(0);
 } else if (parsedArgs.help) {
+  welcome();
   help()
   Deno.exit(0);
+} else {
+  welcome();
 }
 
 const dataPath = path.resolve(path.join(parsedArgs.workPath, "data"));
