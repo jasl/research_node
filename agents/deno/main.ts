@@ -2,6 +2,7 @@ import { parse } from "https://deno.land/std/flags/mod.ts";
 import * as log from "https://deno.land/std/log/mod.ts";
 import * as path from "https://deno.land/std/path/mod.ts";
 import { sleep } from "https://deno.land/x/sleep/mod.ts";
+import { BN, hexToU8a, u8aToHex, isHex } from 'https://deno.land/x/polkadot/util/mod.ts';
 import { cryptoWaitReady, mnemonicGenerate } from 'https://deno.land/x/polkadot/util-crypto/mod.ts';
 import { KeyringPair } from 'https://deno.land/x/polkadot/keyring/types.ts';
 import { ApiPromise, WsProvider, HttpProvider, Keyring } from 'https://deno.land/x/polkadot/api/mod.ts';
@@ -87,19 +88,19 @@ function version() {
   console.log(`Research computing worker ${VERSION} (${SPEC_VERSION})`);
 }
 
-function loadOrCreateIdentity(dataPath: string): KeyringPair | null {
+function loadOrCreateWorkerKeyPair(dataPath: string): KeyringPair | null {
   const secretFile = path.join(dataPath, "identity.secret");
   const keyPair = (() => {
     try {
       const mnemonic = Deno.readTextFileSync(secretFile).trim();
 
-      return new Keyring({type: 'sr25519'}).addFromUri(mnemonic, { name: "Worker identity" });
+      return new Keyring({type: 'sr25519'}).addFromUri(mnemonic, { name: "Worker" });
     } catch (e) {
       if (e instanceof Deno.errors.NotFound) {
         const mnemonic = mnemonicGenerate(12);
         Deno.writeTextFileSync(secretFile, mnemonic);
 
-        return new Keyring({type: 'sr25519'}).addFromUri(mnemonic, { name: "Worker identity" });
+        return new Keyring({type: 'sr25519'}).addFromUri(mnemonic, { name: "Worker" });
       }
 
       return null;
@@ -154,6 +155,7 @@ function createSubstrateApi(rpcUrl: string): ApiPromise | null {
 }
 
 async function initializeLogger(logPath: string) {
+  // logger not write to log instantly, need explict call `logger.handlers[0].flush()`
   await log.setup({
     handlers: {
       console: new log.handlers.ConsoleHandler("NOTSET"),
@@ -177,8 +179,16 @@ async function initializeLogger(logPath: string) {
   });
 }
 
-function buildBalance(api: ApiPromise, value: number) {
-  return api.createType("Balance", value.toString() + "000000000000");
+function numberToBalance(value: number) {
+  const bn1e12 = new BN(10).pow(new BN(12));
+  return new BN(value.toString()).mul(bn1e12);
+}
+
+function balanceToNumber(value: BN | string | number) {
+  const bn1e9 = new BN(10).pow(new BN(9));
+  const bnValue = isHex(value) ? new BN(hexToU8a(value), "hex") : new BN(value.toString());
+  // May overflow if the user too rich
+  return bnValue.div(bn1e9).toNumber() / 1e3;
 }
 
 if (parsedArgs.version) {
@@ -215,12 +225,12 @@ await cryptoWaitReady().catch(e => {
   Deno.exit(1);
 });
 
-const identityKeyPair = loadOrCreateIdentity(dataPath);
-if (identityKeyPair === null) {
+const workerKeyPair = loadOrCreateWorkerKeyPair(dataPath);
+if (workerKeyPair === null) {
   console.error("Can not load or create identity.");
   Deno.exit(1);
 } else {
-  console.log(`Identity: ${identityKeyPair.address}`);
+  console.log(`Worker identity: ${workerKeyPair.address}`);
 }
 
 const ownerKeyPair = (() => {
@@ -257,7 +267,7 @@ api.on("error", (e) => {
 await api.isReady.catch(e => console.error(e));
 
 let workerInfo =
-  await api.query.computingWorkers.workers(identityKeyPair.address)
+  await api.query.computingWorkers.workers(workerKeyPair.address)
     .catch(e => {
       console.error(`Read worker info error: ${e.message}`)
       Deno.exit(1);
@@ -269,16 +279,16 @@ if (workerInfo === null) {
 
   if (ownerKeyPair !== null) {
     console.log("Sending `computing_workers.register` transaction...");
-    const initialDeposit = buildBalance(api, 150);
-    const txPromise = api.tx.computingWorkers.register(identityKeyPair.address, initialDeposit);
-    console.log(txPromise.toHex());
+    const initialDeposit = numberToBalance(150);
+    const txPromise = api.tx.computingWorkers.register(workerKeyPair.address, initialDeposit);
+    console.debug(`Call hash: ${txPromise.toHex()}`);
     const txHash = await txPromise.signAndSend(ownerKeyPair, { nonce: -1 });
-    console.log(`Transaction hash ${txHash.toHex()}`);
+    console.log(`Transaction hash: ${txHash.toHex()}`);
 
     await sleep(6); // wait a block
 
     workerInfo =
-      await api.query.computingWorkers.workers(identityKeyPair.address)
+      await api.query.computingWorkers.workers(workerKeyPair.address)
         .catch(e => {
           console.error(`Read worker info error: ${e.message}`)
           Deno.exit(1);
@@ -295,30 +305,28 @@ if (workerInfo === null) {
 }
 
 declare global {
-  // const identityKeyPair: KeyringPair;
-  // const ownerKeyPair: KeyringPair | null;
-  //
-  // let workerInfo: any;
-  // let currentBlockHash: any;
-  // let currentBlockNumber: any;
-
   interface Window {
-    identityKeyPair: KeyringPair;
+    workerKeyPair: KeyringPair;
     ownerKeyPair: KeyringPair | null;
-    workerInfo: any;
-    currentBlockHash: any;
-    currentBlockNumber: any;
+    substrateApi: ApiPromise;
+
+    currentBlockHash: string;
+    currentBlockNumber: bigint;
+
+    workerStatus: string;
   }
 }
 
-window.identityKeyPair = identityKeyPair;
+window.workerKeyPair = workerKeyPair;
 window.ownerKeyPair = ownerKeyPair;
-window.workerInfo = workerInfo;
+window.substrateApi = api;
 
 window.currentBlockNumber = 0;
 window.currentBlockHash = "";
 
-await api.rpc.chain.subscribeFinalizedHeads(async (header) => {
+window.workerStatus = workerInfo.status;
+
+await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (header) => {
   const logger = log.getLogger("background");
   logger.debug(`Chain is at block: #${header.number}`);
 
@@ -326,17 +334,47 @@ await api.rpc.chain.subscribeFinalizedHeads(async (header) => {
   window.currentBlockHash = blockHash;
   window.currentBlockNumber = header.number;
 
-  // const apiAt = await api.at(blockHash);
-  // const events = await apiAt.query.system.events();
-  // console.log(events);
+  const api = window.substrateApi;
+  const apiAt = await window.substrateApi.at(blockHash);
 
-  // TODO: Listen balance change, warn low balance
+  const [workerInfo, { data: workerBalance }] = await Promise.all([
+    apiAt.query.computingWorkers.workers(window.workerKeyPair.address).then(v => v === null || v === undefined ? null : v.toJSON()),
+    apiAt.query.system.account(window.workerKeyPair.address)
+  ]);
+
+  window.workerStatus = workerInfo.status;
+
+  // Watch worker's balance
+  const freeWorkerBalance = balanceToNumber(workerBalance.free);
+  const workerBalanceThreshold = 10;
+  if (freeWorkerBalance < workerBalanceThreshold) {
+    logger.warning(`Work balance insufficient: ${freeWorkerBalance}`);
+
+    if (window.ownerKeyPair !== null) {
+      logger.info("topping up from the owner wallet");
+
+      const txPromise = api.tx.balances.transferKeepAlive(
+        workerKeyPair.address, numberToBalance(workerBalanceThreshold)
+      );
+      console.debug(`Call hash: ${txPromise.toHex()}`);
+      const txHash = await txPromise.signAndSend(ownerKeyPair, { nonce: -1 });
+      console.log(`Transaction hash: ${txHash.toHex()}`);
+    }
+  }
+
+  // const events = await apiAt.query.system.events();
   // TODO: Listen event relates to the worker
 });
 
 const router = new Router();
 router.get("/", (ctx) => {
-  ctx.response.body = `${window.currentBlockNumber}`;
+  ctx.response.body = {
+    currentBlockNumber: window.currentBlockNumber,
+    currentBlockHash: window.currentBlockHash,
+    workerAddress: window.workerKeyPair.address,
+    workerPublicKey: u8aToHex(window.workerKeyPair.publicKey),
+    workerStatus: window.workerStatus,
+  };
 });
 
 const app = new Application();
