@@ -24,7 +24,8 @@ pub enum WorkerStatus {
 	/// not sure `RequestingOffline`
 	Online,
 	/// The worker is offline so it can't accept job.
-	/// Transit from `RequestingOffline`, and `Online` (when slashing)
+	/// Transit from `RequestingOffline`, `RefreshRegistrationRequired` when job queue cleared,
+	/// and `Online` (when slashing)
 	Offline,
 	/// The worker is pending to deregister
 	Deregistering,
@@ -45,8 +46,6 @@ pub enum AttestationType {
 /// Worker's attestation
 #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 pub enum Attestation {
-	/// No attestation
-	None,
 	// TODO: Intel SGX (EPID, ECDSA), AMD SEV, etc.
 }
 

@@ -82,7 +82,7 @@ impl pallet_computing_workers::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;
 	type ReservedDeposit = ConstU128<{ 100 * DOLLARS }>;
-	type AllowNoneAttestation = ConstBool<true>;
+	type DisallowNoneAttestation = ConstBool<false>;
 }
 
 // Build genesis storage according to the mock runtime.

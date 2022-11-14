@@ -75,7 +75,8 @@ function help() {
         --work-path <PATH>
           The work path of the app, default is the app located path
         --owner-phrase <PHRASE>
-          (UNSAFE) Inject the owner wallet, will add some shortcuts (e.g. auto do register if it hasn't).
+          Inject the owner wallet, will enable some shortcuts (e.g. auto do register if it hasn't).
+          WARNING: Keep safe of your owner wallet
         --version
           Show version info.
         --help
@@ -188,12 +189,12 @@ async function initializeLogger(logPath: string) {
   });
 }
 
-function numberToBalance(value: number) {
+function numberToBalance(value: BN | string | number) {
   const bn1e12 = new BN(10).pow(new BN(12));
   return new BN(value.toString()).mul(bn1e12);
 }
 
-function balanceToNumber(value: BN | string | number) {
+function balanceToNumber(value: BN | string) {
   const bn1e9 = new BN(10).pow(new BN(9));
   const bnValue = isHex(value) ? new BN(hexToU8a(value), "hex") : new BN(value.toString());
   // May overflow if the user too rich
@@ -275,22 +276,22 @@ api.on("error", (e) => {
 
 await api.isReady.catch(e => console.error(e));
 
-declare global {
-  interface Locals{
-    sent_register_at: bigint | undefined,
-    sent_initialize_at: bigint | undefined,
-  }
+interface Locals {
+  sent_register_at?: number,
+  sent_initialize_at?: number,
+}
 
+declare global {
   interface Window {
     workerKeyPair: KeyringPair;
     ownerKeyPair: KeyringPair | null;
     substrateApi: ApiPromise;
 
     finalizedBlockHash: string;
-    finalizedBlockNumber: bigint;
+    finalizedBlockNumber: number;
 
     latestBlockHash: string;
-    latestBlockNumber: bigint;
+    latestBlockNumber: number;
 
     workerStatus: WorkerStatus;
 
@@ -308,7 +309,7 @@ window.finalizedBlockHash = "";
 window.latestBlockNumber = 0;
 window.latestBlockHash = "";
 
-window.workerStatus = "Unregistered";
+window.workerStatus = WorkerStatus.Unregistered;
 
 window.locals = {};
 
@@ -336,7 +337,7 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
     apiAt.query.system.account(window.workerKeyPair.address)
   ]);
 
-  if (workerInfo === null) {
+  if (workerInfo === null || workerInfo === undefined) {
     if (window.locals.sent_register_at && window.locals.sent_register_at >= finalizedBlockNumber) {
       logger.debug("Waiting register extrinsic finalize");
 
@@ -344,24 +345,46 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
     }
 
     logger.warning("Worker hasn't registered");
-
-    if (ownerKeyPair !== null) {
+    if (window.ownerKeyPair !== null) {
       const initialDeposit = numberToBalance(150);
-      logger.info(`Sending "computing_workers.register('${workerKeyPair.address}', '${initialDeposit}')"`);
-      const txPromise = api.tx.computingWorkers.register(workerKeyPair.address, initialDeposit);
+      logger.info(`Sending "computing_workers.register('${window.workerKeyPair.address}', '${initialDeposit}')"`);
+      const txPromise = api.tx.computingWorkers.register(window.workerKeyPair.address, initialDeposit);
       logger.debug(`Call hash: ${txPromise.toHex()}`);
-      const txHash = await txPromise.signAndSend(ownerKeyPair, { nonce: -1 });
+      const txHash = await txPromise.signAndSend(window.ownerKeyPair, { nonce: -1 });
       logger.info(`Transaction hash: ${txHash.toHex()}`);
 
       window.locals.sent_register_at = latestBlockNumber;
     }
 
     return;
-  }
-
-  if (window.workerStatus === "Unregistered" && window.locals.sent_register_at) {
+  } else if (window.workerStatus === WorkerStatus.Unregistered && workerInfo.status === WorkerStatus.Registered) {
     logger.info("Worker has registered.");
     window.locals.sent_register_at = undefined;
+    window.workerStatus = workerInfo.status;
+    return;
+  }
+
+  if (workerInfo.status === WorkerStatus.Registered ) {
+    if (window.locals.sent_initialize_at && window.locals.sent_initialize_at >= finalizedBlockNumber) {
+      logger.debug("Waiting initialization extrinsic finalize");
+
+      return;
+    }
+
+    logger.info(`Sending "computing_workers.initialize_worker(${SPEC_VERSION}, None)`);
+    const txPromise = api.tx.computingWorkers.initializeWorker(SPEC_VERSION, null);
+    logger.debug(`Call hash: ${txPromise.toHex()}`);
+    const txHash = await txPromise.signAndSend(window.workerKeyPair, { nonce: -1 });
+    logger.info(`Transaction hash: ${txHash.toHex()}`);
+
+    window.locals.sent_initialize_at = latestBlockNumber;
+
+    return;
+  } else if (window.workerStatus === WorkerStatus.Registered && workerInfo.status === WorkerStatus.Online) {
+    logger.info("Worker is online.");
+    window.locals.sent_initialize_at = undefined;
+    window.workerStatus = workerInfo.status;
+    return;
   }
 
   window.workerStatus = workerInfo.status;
@@ -374,16 +397,22 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
 
     if (window.ownerKeyPair !== null) {
       const deposit = numberToBalance(workerBalanceThreshold);
-      logger.info(`Sending "balances.transferKeepAlive('${workerKeyPair.address}', '${deposit}')"`);
-      const txPromise = api.tx.balances.transferKeepAlive(workerKeyPair.address, deposit);
+      logger.info(`Sending "balances.transferKeepAlive('${window.workerKeyPair.address}', '${deposit}')"`);
+      const txPromise = api.tx.balances.transferKeepAlive(window.workerKeyPair.address, deposit);
       logger.debug(`Call hash: ${txPromise.toHex()}`);
-      const txHash = await txPromise.signAndSend(ownerKeyPair, { nonce: -1 });
-      logger.log(`Transaction hash: ${txHash.toHex()}`);
+      const txHash = await txPromise.signAndSend(window.ownerKeyPair, { nonce: -1 });
+      logger.info(`Transaction hash: ${txHash.toHex()}`);
     }
   }
 
-  // const events = await apiAt.query.system.events();
-  // TODO: Listen event relates to the worker
+  const events = await apiAt.query.system.events();
+  events.forEach(({ event }) => {
+    // if (event.section !== "computingWorkers") {
+    //   return;
+    // }
+
+    console.log(event.toHuman());
+  })
 });
 
 const router = new Router();

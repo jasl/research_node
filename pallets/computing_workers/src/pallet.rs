@@ -15,7 +15,7 @@ use frame_support::{
 };
 use sp_core::Get;
 use sp_runtime::traits::StaticLookup;
-use crate::types::{WorkerInfo, WorkerStatus};
+use crate::types::{Attestation, WorkerInfo, WorkerStatus};
 
 type AccountIdLookupOf<T> = <<T as frame_system::Config>::Lookup as StaticLookup>::Source;
 type BalanceOf<T> =
@@ -26,7 +26,6 @@ pub(crate) mod pallet {
 	use super::*;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
-	use crate::types::Attestation;
 
 	/// The current storage version.
 	const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
@@ -51,9 +50,9 @@ pub(crate) mod pallet {
 
 		/// Verify attestation
 		///
-		/// SHOULD NOT SET TO TRUE ON PRODUCTION!!!
+		/// SHOULD NOT SET TO FALSE ON PRODUCTION!!!
 		#[pallet::constant]
-		type AllowNoneAttestation: Get<bool>;
+		type DisallowNoneAttestation: Get<bool>;
 
 		// TODO: type WeightInfo: WeightInfo;
 	}
@@ -67,6 +66,8 @@ pub(crate) mod pallet {
 		Registered { worker: T::AccountId },
 		/// The worker registered successfully
 		Deregistered { worker: T::AccountId },
+		/// The worker initialized successfully
+		Initialized { worker: T::AccountId },
 	}
 
 	// Errors inform users that something went wrong.
@@ -83,7 +84,15 @@ pub(crate) mod pallet {
 		/// The extrinsic origin isn't the worker
 		NotTheWorker,
 		/// The worker not exists
-		WorkerNotExists,
+		NotExists,
+		/// The worker must offline before do deregister
+		MustOffline,
+		/// The worker's status doesn't allow the operation
+		WrongStatus,
+		/// Attestation required
+		MustProvideAttestation,
+		/// Unsupported attestation
+		UnsupportedAttestation,
 	}
 
 	/// Storage for computing_workers.
@@ -104,7 +113,7 @@ pub(crate) mod pallet {
 		/// ## Deposits/Fees
 		/// The origin signed account will transfer `initial_deposit` to worker's current account
 		/// that will use for slashing.
-		/// If the balance below `ExistentialDeposit`, the worker will be removed
+		/// If the balance below `ReservedDeposit`, the worker will be removed
 		///
 		/// ## Events
 		/// The `Registered` event is emitted in case of success.
@@ -137,11 +146,12 @@ pub(crate) mod pallet {
 		pub fn initialize_worker(
 			origin: OriginFor<T>,
 			spec_version: u32,
-			attestation: Attestation
+			attestation: Option<Attestation>
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-			// TODO:
-			Ok(())
+			Self::do_initialize_worker(
+				who, spec_version, attestation, frame_system::Pallet::<T>::block_number()
+			)
 		}
 	}
 }
@@ -202,8 +212,12 @@ impl<T: Config> Pallet<T> {
 		who: T::AccountId,
 		worker: T::AccountId,
 	) -> DispatchResult {
-		let worker_info = Workers::<T>::get(&worker).ok_or(Error::<T>::WorkerNotExists)?;
+		let worker_info = Workers::<T>::get(&worker).ok_or(Error::<T>::NotExists)?;
 		Self::ensure_owner(&who, &worker_info)?;
+		ensure!(
+			worker_info.status == WorkerStatus::Offline || worker_info.status == WorkerStatus::Registered,
+			Error::<T>::MustOffline
+		);
 
 		let reserved = worker_info.reserved;
 		<T as Config>::Currency::unreserve(
@@ -221,6 +235,42 @@ impl<T: Config> Pallet<T> {
 
 		Self::deposit_event(
 			Event::<T>::Deregistered { worker: worker.clone() }
+		);
+		Ok(())
+	}
+
+	pub fn do_initialize_worker(
+		who: T::AccountId,
+		spec_version: u32,
+		attestation: Option<Attestation>,
+		block_number: T::BlockNumber,
+	) -> DispatchResult {
+		ensure!(
+			!T::DisallowNoneAttestation::get() || attestation.is_some(),
+			Error::<T>::MustProvideAttestation
+		);
+
+		let mut worker_info = Workers::<T>::get(&who).ok_or(Error::<T>::NotExists)?;
+		Self::ensure_worker(&who, &worker_info)?;
+		ensure!(
+			worker_info.status == WorkerStatus::Registered,
+			Error::<T>::WrongStatus
+		);
+
+		worker_info.spec_version = spec_version;
+		worker_info.attestation_type =
+			match attestation {
+				None => None,
+				// TODO: verify attestation
+				_ => return Err(Error::<T>::UnsupportedAttestation.into())
+			};
+		worker_info.updated_at = block_number;
+		worker_info.status = WorkerStatus::Online;
+
+		Workers::<T>::insert(&who, worker_info);
+
+		Self::deposit_event(
+			Event::<T>::Initialized { worker: who.clone() }
 		);
 		Ok(())
 	}

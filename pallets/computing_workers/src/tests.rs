@@ -89,3 +89,27 @@ fn deregister_works() {
 		assert!(!Account::<Test>::contains_key(ALICE_WORKER));
 	});
 }
+
+#[test]
+fn initialize_worker_works() {
+	new_test_ext().execute_with(|| {
+		set_balance(ALICE, 102 * DOLLARS, 0);
+
+		register_worker_for(ALICE, ALICE_WORKER, 101 * DOLLARS);
+
+		run_to_block(1);
+
+		assert_ok!(
+			ComputingWorkers::initialize_worker(
+				RuntimeOrigin::signed(ALICE_WORKER),
+				1,
+				None
+			)
+		);
+
+		let worker_info = ComputingWorkers::workers(ALICE_WORKER).unwrap();
+		assert_eq!(worker_info.status, WorkerStatus::Online);
+		assert_eq!(worker_info.updated_at, 1);
+	});
+}
+
