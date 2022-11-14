@@ -1,13 +1,11 @@
 import { parse } from "https://deno.land/std/flags/mod.ts";
 import * as log from "https://deno.land/std/log/mod.ts";
 import * as path from "https://deno.land/std/path/mod.ts";
-import { sleep } from "https://deno.land/x/sleep/mod.ts";
 import { BN, hexToU8a, u8aToHex, isHex } from 'https://deno.land/x/polkadot/util/mod.ts';
 import { cryptoWaitReady, mnemonicGenerate } from 'https://deno.land/x/polkadot/util-crypto/mod.ts';
 import { KeyringPair } from 'https://deno.land/x/polkadot/keyring/types.ts';
 import { ApiPromise, WsProvider, HttpProvider, Keyring } from 'https://deno.land/x/polkadot/api/mod.ts';
 import { Application, Router } from "https://deno.land/x/oak/mod.ts";
-import a from "https://esm.sh/v98/@noble/hashes@1.1.3/deno/_assert.js";
 
 const VERSION = "v0.0.1-dev";
 const SPEC_VERSION = 1;
