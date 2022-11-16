@@ -1,9 +1,105 @@
 use frame_support::{
 	codec::{Decode, Encode, MaxEncodedLen},
 	scale_info::TypeInfo,
+	traits::ConstU32,
+	BoundedVec,
 };
-use sp_std::prelude::*;
 use sp_runtime::RuntimeDebug;
+use sp_std::prelude::*;
+
+pub const ATTESTATION_MATERIAL_ISSUED_PERIOD_OF_VALIDITY: u64 = 60 * 60 * 1000; // 1 hour
+pub const MAX_ATTESTATION_PAYLOAD_SIZE: u32 = 64 * 1000; // limit to 64KB
+
+pub type AttestationPayload = BoundedVec<u8, ConstU32<MAX_ATTESTATION_PAYLOAD_SIZE>>;
+
+#[derive(Clone, PartialEq, RuntimeDebug)]
+pub struct AttestationVerifyMaterial {
+	pub now: u64,
+	// TODO: more fields, e.g. implementations allow list
+}
+
+#[derive(Encode, Decode, Clone, PartialEq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+pub struct NonTEEAttestationMaterial {
+	pub issued_at: u64,
+	pub payload: AttestationPayload,
+}
+
+/// The type of how the worker do attestation
+#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+pub enum AttestationMethod {
+	/// Attest by dev mode
+	NonTEE,
+	/// Attest by root authority
+	Root,
+	// TODO: Intel SGX (EPID, ECDSA), AMD SEV, etc.
+}
+
+#[derive(Encode, Decode, TypeInfo, Debug, Clone, PartialEq, Eq)]
+pub enum AttestationError {
+	Invalid,
+	Expired,
+}
+
+/// Worker's attestation
+#[derive(Encode, Decode, Clone, PartialEq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+pub enum Attestation {
+	NonTEE(NonTEEAttestationMaterial),
+	// TODO: Intel SGX (EPID, ECDSA), AMD SEV, etc.
+}
+impl Attestation {
+	pub fn method(&self) -> AttestationMethod {
+		match self {
+			Attestation::NonTEE(..) => AttestationMethod::NonTEE,
+		}
+	}
+
+	pub fn verify(&self, verify_material: &AttestationVerifyMaterial) -> Result<VerifiedAttestation, AttestationError> {
+		match self {
+			Attestation::NonTEE(material) =>
+				if let Err(error) = verify_non_tee_attestation(material, verify_material) {
+					Err(error)
+				} else {
+					Ok(VerifiedAttestation(self))
+				},
+		}
+	}
+
+	pub(self) fn payload(&self) -> &[u8] {
+		match self {
+			Attestation::NonTEE(material) => material.payload.as_slice()
+		}
+	}
+}
+
+#[derive(Clone, PartialEq, RuntimeDebug)]
+pub struct VerifiedAttestation<'a>(&'a Attestation);
+impl VerifiedAttestation<'_> {
+	pub fn method(&self) -> AttestationMethod {
+		self.0.method()
+	}
+
+	pub fn payload(&self) -> &[u8] {
+		self.0.payload()
+	}
+}
+
+fn verify_non_tee_attestation(
+	material: &NonTEEAttestationMaterial,
+	verify_material: &AttestationVerifyMaterial
+) -> Result<(), AttestationError> {
+	let period = verify_material.now - material.issued_at;
+	if period > ATTESTATION_MATERIAL_ISSUED_PERIOD_OF_VALIDITY {
+		Err(AttestationError::Expired)
+	} else {
+		Ok(())
+	}
+}
+
+#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+pub struct RegistrationPayload<Account> {
+	pub account: Account,
+	pub spec_version: u32,
+}
 
 /// Worker's status
 #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
@@ -35,21 +131,9 @@ pub enum WorkerStatus {
 }
 
 impl Default for WorkerStatus {
-	fn default() -> Self { WorkerStatus::Registered }
-}
-
-/// The type of how the worker do attestation
-#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
-pub enum AttestationType {
-	/// Attest by root authority
-	Root,
-	// TODO: Intel SGX (EPID, ECDSA), AMD SEV, etc.
-}
-
-/// Worker's attestation
-#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
-pub enum Attestation {
-	// TODO: Intel SGX (EPID, ECDSA), AMD SEV, etc.
+	fn default() -> Self {
+		WorkerStatus::Registered
+	}
 }
 
 /// Worker's info.
@@ -69,12 +153,24 @@ pub struct WorkerInfo<Account, Balance, BlockNumber> {
 	/// Not the public version exposed to end users,
 	/// Spec version is a sequential number that space and use friendly
 	pub spec_version: u32,
-	/// Attestation type,
+	/// Attestation method,
 	/// This field is readonly once set
-	pub attestation_type: Option<AttestationType>,
-	/// A block number of when the worker update the info.
+	pub attestation_method: Option<AttestationMethod>,
+	/// A block number of when the worker refresh its attestation.
 	/// It may be 0 in case the worker hasn't submit
-	pub updated_at: BlockNumber,
-	/// A block number of when the worker send heartbeat
-	pub last_heartbeat_at: BlockNumber,
+	pub attested_at: BlockNumber,
+}
+
+#[derive(Encode, Decode, MaxEncodedLen, TypeInfo, RuntimeDebug, Clone, PartialEq, Eq)]
+pub enum FlipFlopStage {
+	Flip,
+	Flop,
+	FlipToFlop,
+	FlopToFlip,
+}
+
+impl Default for FlipFlopStage {
+	fn default() -> Self {
+		FlipFlopStage::Flip
+	}
 }

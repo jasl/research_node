@@ -99,6 +99,32 @@ function version() {
   console.log(`${IMPL_NAME} ${VERSION} (${SPEC_VERSION})`);
 }
 
+async function initializeLogger(logPath: string) {
+  // logger not write to log instantly, need explict call `logger.handlers[0].flush()`
+  await log.setup({
+    handlers: {
+      console: new log.handlers.ConsoleHandler("NOTSET"),
+      file: new log.handlers.FileHandler("NOTSET", {
+        filename: path.resolve(path.join(logPath, "computing_worker.log")),
+        formatter: (rec) =>
+          JSON.stringify(
+            { ts: rec.datetime, topic: rec.loggerName, level: rec.levelName, msg: rec.msg },
+          ),
+      }),
+    },
+    loggers: {
+      default: {
+        level: "NOTSET",
+        handlers: ["console"],
+      },
+      background: {
+        level: "NOTSET",
+        handlers: ["file", "console"],
+      },
+    },
+  });
+}
+
 function loadOrCreateWorkerKeyPair(dataPath: string): KeyringPair | null {
   const secretFile = path.join(dataPath, "worker.secret");
   const keyPair = (() => {
@@ -140,17 +166,31 @@ function createSubstrateApi(rpcUrl: string): ApiPromise | null {
     types: {
       Address: "AccountId",
       LookupSource: "AccountId",
-      Attestation: {
-        _enum: ["None"],
+      RegistrationPayload: {
+        account: "AccountId",
+        spec_version: "u32",
       },
-      AttestationType: {
-        _enum: ["Root"],
+      AttestationPayload: "BoundedVec<u8, 64000>",
+      NonTEEAttestationMaterial: {
+        issued_at: "u64",
+        payload: "AttestationPayload"
+      },
+      AttestationMethod: {
+        _enum: ["Root", "NonTEE"],
+      },
+      AttestationError: {
+        _enum: ["Invalid", "Expired"],
+      },
+      Attestation: {
+        _enum: {
+          NonTEE: "NonTEEAttestationMaterial"
+        },
       },
       WorkerStatus: {
         _enum: [
           "Registered",
           "RefreshRegistrationRequired",
-          "Maintaining",
+          "RequestingOffline",
           "Online",
           "Offline",
           "Deregistering",
@@ -162,12 +202,19 @@ function createSubstrateApi(rpcUrl: string): ApiPromise | null {
         reserved: "Balance",
         status: "WorkerStatus",
         spec_version: "u32",
-        attestation_type: "Option<AttestationType>",
-        updated_at: "BlockNumber",
-        last_heartbeat_at: "BlockNumber",
+        attestation_method: "Option<AttestationMethod>",
+        attested_at: "BlockNumber",
       },
     },
   });
+}
+
+function createAttestation(api: ApiPromise, payload: any) {
+  const material = api.createType("NonTEEAttestationMaterial", {
+    issued_at: Date.now(),
+    payload: payload,
+  });
+  return api.createType("Option<Attestation>", { "NonTEE": material })
 }
 
 enum WorkerStatus {
@@ -178,32 +225,6 @@ enum WorkerStatus {
   Online = "Online",
   Offline = "Offline",
   Deregistering = "Deregistering",
-}
-
-async function initializeLogger(logPath: string) {
-  // logger not write to log instantly, need explict call `logger.handlers[0].flush()`
-  await log.setup({
-    handlers: {
-      console: new log.handlers.ConsoleHandler("NOTSET"),
-      file: new log.handlers.FileHandler("NOTSET", {
-        filename: path.resolve(path.join(logPath, "computing_worker.log")),
-        formatter: (rec) =>
-          JSON.stringify(
-            { ts: rec.datetime, topic: rec.loggerName, level: rec.levelName, msg: rec.msg },
-          ),
-      }),
-    },
-    loggers: {
-      default: {
-        level: "NOTSET",
-        handlers: ["console"],
-      },
-      background: {
-        level: "NOTSET",
-        handlers: ["file", "console"],
-      },
-    },
-  });
 }
 
 function numberToBalance(value: BN | string | number) {
@@ -372,14 +393,36 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
 
     logger.warning("Worker hasn't registered");
     if (window.ownerKeyPair !== null) {
+      const payload = api.createType("RegistrationPayload", {
+        "account": window.workerKeyPair.address,
+        "spec_version": SPEC_VERSION,
+      });
+      const payloadSig = window.workerKeyPair.sign(payload.toU8a());
+      const attestation = createAttestation(api, u8aToHex(payloadSig));
+
+      console.log(payload.toHuman())
+
       const initialDeposit = numberToBalance(150);
-      logger.info(`Sending "computing_workers.register('${window.workerKeyPair.address}', '${initialDeposit}')"`);
-      const txPromise = api.tx.computingWorkers.register(window.workerKeyPair.address, initialDeposit);
+      logger.info(`Sending "computing_workers.register(..)`);
+      const txPromise = api.tx.computingWorkers.register(initialDeposit, payload, attestation);
       logger.debug(`Call hash: ${txPromise.toHex()}`);
       const txHash = await txPromise.signAndSend(window.ownerKeyPair, { nonce: -1 });
       logger.info(`Transaction hash: ${txHash.toHex()}`);
+      // TODO: Catch whether failed
 
       window.locals.sent_register_at = latestBlockNumber;
+    } else {
+      const payload = api.createType("RegistrationPayload", {
+        "account": window.workerKeyPair.address,
+        "spec_version": SPEC_VERSION,
+      });
+      const payloadSig = window.workerKeyPair.sign(payload.toU8a());
+      const attestation = createAttestation(api, u8aToHex(payloadSig));
+      const initialDeposit = numberToBalance(150);
+      const txPromise = api.tx.computingWorkers.register(initialDeposit, payload, attestation);
+
+      console.log(`Copy & paste below call hash to https://polkadot.js.org/apps/?rpc=${encodeURI(parsedArgs.rpcUrl)}#/extrinsics/decode for register the worker`)
+      console.log(`Call hash: ${txPromise.toHex()}`);
     }
 
     return;
@@ -397,11 +440,12 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
       return;
     }
 
-    logger.info(`Sending "computing_workers.initialize(${SPEC_VERSION}, None)`);
-    const txPromise = api.tx.computingWorkers.initialize(SPEC_VERSION, null);
+    logger.info(`Sending "computing_workers.online()`);
+    const txPromise = api.tx.computingWorkers.online();
     logger.debug(`Call hash: ${txPromise.toHex()}`);
     const txHash = await txPromise.signAndSend(window.workerKeyPair, { nonce: -1 });
     logger.info(`Transaction hash: ${txHash.toHex()}`);
+    // TODO: Catch whether failed
 
     window.locals.sent_initialize_at = latestBlockNumber;
 

@@ -1,25 +1,24 @@
 /// Learn more about FRAME and the core library of Substrate FRAME pallets:
 /// <https://docs.substrate.io/reference/frame-pallets/>
-
 pub use pallet::*;
 
 use frame_support::{
-	ensure,
 	dispatch::DispatchResult,
-	traits::{
-		Currency,
-		ReservableCurrency,
-		ExistenceRequirement,
-	},
+	ensure,
+	traits::{Currency, ExistenceRequirement, ReservableCurrency, Get, UnixTime},
 	transactional,
 };
-use sp_core::Get;
-use sp_runtime::traits::StaticLookup;
-use crate::types::{Attestation, WorkerInfo, WorkerStatus};
+use scale_codec::Encode;
+use sp_runtime::{
+	traits::{StaticLookup, Zero},
+	DispatchError, SaturatedConversion,
+};
+use sp_core::{H256, sr25519};
+use sp_io::crypto::sr25519_verify;
+use crate::types::{Attestation, AttestationMethod, AttestationVerifyMaterial, VerifiedAttestation, FlipFlopStage, RegistrationPayload, WorkerInfo, WorkerStatus, AttestationError};
 
 type AccountIdLookupOf<T> = <<T as frame_system::Config>::Lookup as StaticLookup>::Source;
-type BalanceOf<T> =
-	<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 
 #[frame_support::pallet]
 pub(crate) mod pallet {
@@ -44,15 +43,36 @@ pub(crate) mod pallet {
 		/// The system's currency for payment.
 		type Currency: ReservableCurrency<Self::AccountId>;
 
+		/// Time used for verify attestation
+		type UnixTime: UnixTime;
+
+		/// The minimum amount required to keep a worker registration.
+		#[pallet::constant]
+		type MaxPendingOfflineWorkers: Get<u32>;
+
 		/// The minimum amount required to keep a worker registration.
 		#[pallet::constant]
 		type ReservedDeposit: Get<BalanceOf<Self>>;
 
-		/// Verify attestation
+		/// The duration (blocks) of collecting workers' heartbeats
+		#[pallet::constant]
+		type CollectingHeartbeatsDuration: Get<u32>;
+
+		/// The duration (blocks) of collecting workers' heartbeats
+		#[pallet::constant]
+		type AttestationValidityDuration: Get<u32>;
+
+		/// Allow Opt out attestation
 		///
 		/// SHOULD NOT SET TO FALSE ON PRODUCTION!!!
 		#[pallet::constant]
-		type DisallowNoneAttestation: Get<bool>;
+		type DisallowOptOutAttestation: Get<bool>;
+
+		/// Allow Opt out attestation
+		///
+		/// SHOULD NOT SET TO FALSE ON PRODUCTION!!!
+		// #[pallet::constant]
+		type DisallowNonTEEAttestation: Get<bool>;
 
 		// TODO: type WeightInfo: WeightInfo;
 	}
@@ -66,10 +86,14 @@ pub(crate) mod pallet {
 		Registered { worker: T::AccountId },
 		/// The worker registered successfully
 		Deregistered { worker: T::AccountId },
-		/// The worker initialized successfully
-		Initialized { worker: T::AccountId },
+		/// The worker is online
+		Online { worker: T::AccountId },
+		/// The worker is requesting offline
+		RequestingOffline { worker: T::AccountId },
+		/// The worker is offline
+		Offline { worker: T::AccountId },
 		/// The worker send heartbeat successfully
-		StillOnline { worker: T::AccountId },
+		HeartbeatReceived { worker: T::AccountId },
 	}
 
 	// Errors inform users that something went wrong.
@@ -87,21 +111,60 @@ pub(crate) mod pallet {
 		NotTheWorker,
 		/// The worker not exists
 		NotExists,
+		/// The worker is not online
+		NotOnline,
 		/// The worker must offline before do deregister
-		MustOffline,
+		NotOffline,
 		/// The worker's status doesn't allow the operation
 		WrongStatus,
 		/// Attestation required
 		MustProvideAttestation,
+		/// Attestation expired,
+		ExpiredAttestation,
+		/// Attestation invalid,
+		InvalidAttestation,
+		/// Attestation payload invalid
+		InvalidAttestationPayload,
+		/// Can't verify payload
+		MismatchedPayloadSignature,
+		/// The runtime disallowed NonTEE worker
+		DisallowNonTEEAttestation,
 		/// Unsupported attestation
 		UnsupportedAttestation,
+		/// The attestation method must not change
+		AttestationMethodChanged,
+		/// Attestation expired
+		AttestationRefreshNeeded,
+		/// Intermission
+		Intermission,
+		/// AlreadySentHeartbeat
+		AlreadySentHeartbeat,
 	}
 
 	/// Storage for computing_workers.
 	#[pallet::storage]
 	#[pallet::getter(fn workers)]
-	pub type Workers<T: Config> =
-		CountedStorageMap<_, Twox64Concat, T::AccountId, WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>>;
+	pub type Workers<T: Config> = CountedStorageMap<_, Identity, T::AccountId, WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>>;
+
+	/// Storage for pending offline workers
+	#[pallet::storage]
+	#[pallet::getter(fn pending_offline_workers)]
+	pub type PendingOfflineWorkers<T: Config> = StorageValue<_, BoundedVec<T::AccountId, T::MaxPendingOfflineWorkers>, ValueQuery>;
+
+	/// Storage for flip set, this is for online checking
+	#[pallet::storage]
+	#[pallet::getter(fn flip_set)]
+	pub type FlipSet<T: Config> = CountedStorageMap<_, Identity, T::AccountId, ()>;
+
+	/// Storage for flop set, this is for online checking
+	#[pallet::storage]
+	#[pallet::getter(fn flop_set)]
+	pub type FlopSet<T: Config> = CountedStorageMap<_, Identity, T::AccountId, ()>;
+
+	/// Storage for stage of flip-flop, this is used for online checking
+	#[pallet::storage]
+	#[pallet::getter(fn flip_flop_stage)]
+	pub type FlipOrFlop<T> = StorageValue<_, FlipFlopStage, ValueQuery>;
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
@@ -124,36 +187,44 @@ pub(crate) mod pallet {
 		#[transactional]
 		pub fn register(
 			origin: OriginFor<T>,
-			worker: T::AccountId,
 			initial_deposit: BalanceOf<T>,
+			payload: RegistrationPayload<T::AccountId>,
+			attestation: Option<Attestation>,
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-			Self::do_register(who, worker, initial_deposit)
+			Self::do_register(who, initial_deposit, payload, attestation)
 		}
 
 		/// Deregister a computing workers.
 		#[pallet::weight(0)]
 		#[transactional]
-		pub fn deregister(
-			origin: OriginFor<T>,
-			worker: T::AccountId,
-		) -> DispatchResult {
+		pub fn deregister(origin: OriginFor<T>, worker: T::AccountId) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 			Self::do_deregister(who, worker)
 		}
 
-		/// Initialize a worker, must called by the worker
+		/// The worker claim for online
 		#[pallet::weight(0)]
 		#[transactional]
-		pub fn initialize(
-			origin: OriginFor<T>,
-			spec_version: u32,
-			attestation: Option<Attestation>
-		) -> DispatchResult {
+		pub fn online(origin: OriginFor<T>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-			Self::do_initialize(
-				who, spec_version, attestation
-			)
+			Self::do_online(who)
+		}
+
+		/// The worker requesting offline
+		#[pallet::weight(0)]
+		#[transactional]
+		pub fn requesting_offline(origin: OriginFor<T>) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+			Self::do_requesting_offline(who)
+		}
+
+		/// Worker report it is still online, must called by the worker
+		#[pallet::weight(0)]
+		#[transactional]
+		pub fn heartbeat(origin: OriginFor<T>) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+			Self::do_heartbeat(&who)
 		}
 	}
 }
@@ -161,135 +232,254 @@ pub(crate) mod pallet {
 impl<T: Config> Pallet<T> {
 	fn do_register(
 		who: T::AccountId,
-		worker: T::AccountId,
-		initial_deposit: BalanceOf<T>
+		initial_deposit: BalanceOf<T>,
+		payload: RegistrationPayload<T::AccountId>,
+		attestation: Option<Attestation>,
 	) -> DispatchResult {
-		ensure!(
-			who != worker,
-			Error::<T>::InvalidOwner
-		);
+		let worker = payload.account.clone();
+		ensure!(who != worker, Error::<T>::InvalidOwner);
 
 		let initial_reserved_deposit = T::ReservedDeposit::get();
-		ensure!(
-			initial_deposit >= initial_reserved_deposit,
-			Error::<T>::InitialDepositTooLow
-		);
+		ensure!(initial_deposit >= initial_reserved_deposit, Error::<T>::InitialDepositTooLow);
 
-		ensure!(
-			!Workers::<T>::contains_key(&worker),
-			Error::<T>::AlreadyRegistered
-		);
+		Self::ensure_attestation_provided(&attestation)?;
+
+		ensure!(!Workers::<T>::contains_key(&worker), Error::<T>::AlreadyRegistered);
+
+		let mut attestation_method: Option<AttestationMethod> = None;
+		if let Some(attestation) = attestation {
+			attestation_method = Some(attestation.method());
+			let verified = Self::verify_attestation(&attestation)?;
+
+			let encode_worker = T::AccountId::encode(&worker);
+			let h256_worker = H256::from_slice(&encode_worker);
+			let worker_public_key = sr25519::Public::from_h256(h256_worker);
+
+			let encoded_message = Encode::encode(&payload);
+
+			if let Some(signature) =
+				sr25519::Signature::from_slice(verified.payload()) {
+				if !sr25519_verify(&signature, &encoded_message, &worker_public_key) {
+					return Err(Error::<T>::MismatchedPayloadSignature.into())
+				}
+			} else {
+				return Err(Error::<T>::InvalidAttestationPayload.into())
+			}
+		}
 
 		let worker_info = WorkerInfo {
 			account: worker.clone(),
 			owner: who.clone(),
 			reserved: initial_reserved_deposit,
 			status: WorkerStatus::Registered,
-			spec_version: 0,
-			attestation_type: None,
-			updated_at: T::BlockNumber::default(),
-			last_heartbeat_at: T::BlockNumber::default(),
+			spec_version: payload.spec_version,
+			attestation_method,
+			attested_at: frame_system::Pallet::<T>::block_number(),
 		};
 
-		<T as Config>::Currency::transfer(
-			&who,
-			&worker,
-			initial_deposit,
-			ExistenceRequirement::KeepAlive
-		)?;
-		<T as Config>::Currency::reserve(
-			&worker,
-			initial_reserved_deposit
-		)?;
+		<T as Config>::Currency::transfer(&who, &worker, initial_deposit, ExistenceRequirement::KeepAlive)?;
+		<T as Config>::Currency::reserve(&worker, initial_reserved_deposit)?;
 
 		Workers::<T>::insert(&worker, worker_info);
 
-		Self::deposit_event(
-			Event::<T>::Registered { worker: worker.clone() }
-		);
+		Self::deposit_event(Event::<T>::Registered { worker: worker.clone() });
 		Ok(())
 	}
 
-	fn do_deregister(
-		who: T::AccountId,
-		worker: T::AccountId,
-	) -> DispatchResult {
+	fn do_deregister(who: T::AccountId, worker: T::AccountId) -> DispatchResult {
 		let worker_info = Workers::<T>::get(&worker).ok_or(Error::<T>::NotExists)?;
 		Self::ensure_owner(&who, &worker_info)?;
 		ensure!(
-			worker_info.status == WorkerStatus::Offline || worker_info.status == WorkerStatus::Registered,
-			Error::<T>::MustOffline
+			worker_info.status == WorkerStatus::Offline ||
+			worker_info.status == WorkerStatus::Registered,
+			Error::<T>::NotOffline
 		);
 
 		let reserved = worker_info.reserved;
-		<T as Config>::Currency::unreserve(
-			&worker,
-			reserved
-		);
+		<T as Config>::Currency::unreserve(&worker, reserved);
 		<T as Config>::Currency::transfer(
 			&worker,
 			&who,
 			<T as Config>::Currency::free_balance(&worker),
-			ExistenceRequirement::AllowDeath
+			ExistenceRequirement::AllowDeath,
 		)?;
 
 		Workers::<T>::remove(&worker);
 
-		Self::deposit_event(
-			Event::<T>::Deregistered { worker: worker.clone() }
-		);
+		Self::deposit_event(Event::<T>::Deregistered { worker: worker.clone() });
 		Ok(())
 	}
 
-	pub fn do_initialize(
-		who: T::AccountId,
-		spec_version: u32,
-		attestation: Option<Attestation>,
-	) -> DispatchResult {
-		ensure!(
-			!T::DisallowNoneAttestation::get() || attestation.is_some(),
-			Error::<T>::MustProvideAttestation
-		);
-
+	pub fn do_online(who: T::AccountId) -> DispatchResult {
 		let mut worker_info = Workers::<T>::get(&who).ok_or(Error::<T>::NotExists)?;
 		Self::ensure_worker(&who, &worker_info)?;
+
 		ensure!(
-			worker_info.status == WorkerStatus::Registered,
+			worker_info.status == WorkerStatus::Registered ||
+			worker_info.status == WorkerStatus::Offline,
 			Error::<T>::WrongStatus
 		);
 
-		worker_info.spec_version = spec_version;
-		worker_info.attestation_type =
-			match attestation {
-				None => None,
-				// TODO: verify attestation
-				_ => return Err(Error::<T>::UnsupportedAttestation.into())
-			};
+		Self::ensure_worker_attestation_validity(&worker_info)?;
 
-		let block_number = frame_system::Pallet::<T>::block_number();
-		worker_info.updated_at = block_number;
-		worker_info.last_heartbeat_at = block_number;
 		worker_info.status = WorkerStatus::Online;
-
 		Workers::<T>::insert(&who, worker_info);
 
-		Self::deposit_event(
-			Event::<T>::Initialized { worker: who.clone() }
-		);
+		Self::flipflop_for_online(&who);
+
+		Self::deposit_event(Event::<T>::Online { worker: who });
 		Ok(())
 	}
 
+	pub fn do_requesting_offline(who: T::AccountId) -> DispatchResult {
+		let mut worker_info = Workers::<T>::get(&who).ok_or(Error::<T>::NotExists)?;
+		Self::ensure_worker(&who, &worker_info)?;
+
+		ensure!(
+			worker_info.status == WorkerStatus::Online,
+			Error::<T>::NotOnline
+		);
+
+		worker_info.status = WorkerStatus::RequestingOffline;
+		Workers::<T>::insert(&who, worker_info);
+
+		Self::deposit_event(Event::<T>::RequestingOffline { worker: who });
+		Ok(())
+	}
+
+	pub fn do_heartbeat(who: &T::AccountId) -> DispatchResult {
+		let worker_info = Workers::<T>::get(&who).ok_or(Error::<T>::NotExists)?;
+		Self::ensure_worker(&who, &worker_info)?;
+		ensure!(worker_info.status == WorkerStatus::Online, Error::<T>::NotOnline);
+
+		Self::flipflop(who)?;
+
+		Ok(())
+	}
+
+	fn flipflop(who: &T::AccountId) -> DispatchResult {
+		let stage = FlipOrFlop::<T>::get();
+		match stage {
+			FlipFlopStage::Flip => {
+				if let Some(_flip) = FlipSet::<T>::take(who) {
+					FlopSet::<T>::insert(who, ());
+
+					Self::deposit_event(Event::<T>::HeartbeatReceived { worker: who.clone() });
+					Ok(())
+				} else {
+					Err(Error::<T>::AlreadySentHeartbeat.into())
+				}
+			},
+			FlipFlopStage::Flop => {
+				if let Some(_flop) = FlopSet::<T>::take(who) {
+					FlipSet::<T>::insert(who, ());
+
+					Self::deposit_event(Event::<T>::HeartbeatReceived { worker: who.clone() });
+					Ok(())
+				} else {
+					Err(Error::<T>::AlreadySentHeartbeat.into())
+				}
+			},
+			_ => {
+				Err(Error::<T>::Intermission.into())
+			}
+		}
+	}
+
+	fn flipflop_for_online(who: &T::AccountId) {
+		let stage = FlipOrFlop::<T>::get();
+		match stage {
+			FlipFlopStage::Flip => {
+				FlopSet::<T>::insert(who, ());
+			},
+			FlipFlopStage::Flop => {
+				FlipSet::<T>::insert(who, ());
+			},
+			FlipFlopStage::FlipToFlop => {
+				FlipSet::<T>::insert(who, ());
+			},
+			FlipFlopStage::FlopToFlip => {
+				FlopSet::<T>::insert(who, ());
+			}
+		}
+	}
+
+	fn verify_attestation(attestation: &Attestation) -> Result<VerifiedAttestation, DispatchError> {
+		let verify_material = AttestationVerifyMaterial {
+			now: T::UnixTime::now().as_millis().saturated_into::<u64>(),
+		};
+
+		let verified = attestation.verify(&verify_material);
+		return match verified {
+			Ok(verified) => {
+				Ok(verified)
+			},
+			Err(AttestationError::Expired) => {
+				Err(Error::<T>::ExpiredAttestation.into())
+			},
+			Err(AttestationError::Invalid) => {
+				Err(Error::<T>::InvalidAttestation.into())
+			}
+		}
+	}
+
 	fn ensure_owner(
-		who: &T::AccountId, worker_info: &WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>
+		who: &T::AccountId,
+		worker_info: &WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>,
 	) -> DispatchResult {
 		ensure!(*who == worker_info.owner, Error::<T>::NotTheOwner);
 		Ok(())
 	}
 
 	fn ensure_worker(
-		who: &T::AccountId, worker_info: &WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>
+		who: &T::AccountId,
+		worker_info: &WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>,
 	) -> DispatchResult {
 		ensure!(*who == worker_info.account, Error::<T>::NotTheWorker);
+		Ok(())
+	}
+
+	fn ensure_worker_attestation_validity(
+		worker_info: &WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>,
+	) -> DispatchResult {
+		if !T::DisallowOptOutAttestation::get() && worker_info.attested_at.is_zero() {
+			return Ok(())
+		}
+
+		let current_block = frame_system::Pallet::<T>::block_number();
+		if current_block - worker_info.attested_at > T::AttestationValidityDuration::get().into() {
+			Err(Error::<T>::AttestationRefreshNeeded.into())
+		} else {
+			Ok(())
+		}
+	}
+
+	fn ensure_attestation_provided(attestation: &Option<Attestation>) -> DispatchResult {
+		if let Some(attestation) = attestation {
+			if attestation.method() == AttestationMethod::NonTEE {
+				ensure!(!T::DisallowNonTEEAttestation::get(), Error::<T>::DisallowNonTEEAttestation);
+			}
+		} else {
+			ensure!(!T::DisallowOptOutAttestation::get() || attestation.is_some(), Error::<T>::MustProvideAttestation);
+		}
+
+		Ok(())
+	}
+
+	fn ensure_attestation_method(
+		attestation: &Option<Attestation>,
+		worker_info: &WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>,
+	) -> DispatchResult {
+		if let Some(worker_attestation_method) = worker_info.clone().attestation_method {
+			if let Some(attestation) = attestation {
+				ensure!(attestation.method() == worker_attestation_method, Error::<T>::AttestationMethodChanged);
+			} else {
+				return Err(Error::<T>::AttestationMethodChanged.into())
+			}
+		} else {
+			ensure!(attestation.is_none(), Error::<T>::AttestationMethodChanged)
+		}
+
 		Ok(())
 	}
 }

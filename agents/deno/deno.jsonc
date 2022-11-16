@@ -7,12 +7,13 @@
   // "importMap": "import_map.json",
   "lint": {
     "files": {
-      "include": ["./"]
+      "include": ["./"],
+      "exclude": ["./main.js"]
     },
     "rules": {
       "tags": ["recommended"],
-      "include": ["ban-untagged-todo"],
-      "exclude": ["no-unused-vars"]
+      "include": [],
+      "exclude": ["no-unused-vars", "no-explicit-any"]
     }
   },
   "fmt": {

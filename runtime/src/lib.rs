@@ -33,7 +33,7 @@ use pallet_grandpa::{fg_primitives, AuthorityId as GrandpaId, AuthorityList as G
 use pallet_transaction_payment::Multiplier;
 
 use node_primitives::constants::{
-	currency::{deposit, CENTS, UNITS, EXISTENTIAL_DEPOSIT},
+	currency::{deposit, CENTS, EXISTENTIAL_DEPOSIT, UNITS},
 	time::SLOT_DURATION,
 	weight::{AVERAGE_ON_INITIALIZE_RATIO, MAXIMUM_BLOCK_WEIGHT, NORMAL_DISPATCH_RATIO},
 };
@@ -48,7 +48,7 @@ pub use sp_runtime::{Perbill, Permill};
 pub use node_primitives::{
 	constants,
 	opaque::{self, Header},
-	types::{AccountId, Balance, BlockNumber, Hash, Index, Signature, Moment},
+	types::{AccountId, Balance, BlockNumber, Hash, Index, Moment, Signature},
 };
 
 mod pallet_configs;

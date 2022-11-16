@@ -2,14 +2,9 @@ use crate as pallet_computing_workers;
 
 use frame_support::{
 	assert_ok,
-	traits::{
-		OnFinalize, OnInitialize,
-	}
+	traits::{OnFinalize, OnInitialize},
 };
-use sp_core::{
-	ConstU16, ConstU64, ConstU128, ConstBool,
-	H256,
-};
+use sp_core::{ConstBool, ConstU128, ConstU16, ConstU32, ConstU64, H256};
 use sp_runtime::{
 	testing::Header,
 	traits::{BlakeTwo256, IdentityLookup},
@@ -35,6 +30,7 @@ frame_support::construct_runtime!(
 	{
 		System: frame_system,
 		Balances: pallet_balances,
+		Timestamp: pallet_timestamp,
 		ComputingWorkers: pallet_computing_workers,
 	}
 );
@@ -78,17 +74,30 @@ impl pallet_balances::Config for Test {
 	type ReserveIdentifier = [u8; 8];
 }
 
+impl pallet_timestamp::Config for Test {
+	type Moment = u64;
+	type OnTimestampSet = ();
+	type MinimumPeriod = ConstU64<5>;
+	type WeightInfo = ();
+}
+
 impl pallet_computing_workers::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;
+	type UnixTime = Timestamp;
+	type MaxPendingOfflineWorkers = ConstU32<3>;
 	type ReservedDeposit = ConstU128<{ 100 * DOLLARS }>;
-	type DisallowNoneAttestation = ConstBool<false>;
+	type CollectingHeartbeatsDuration = ConstU32<6>;
+	type AttestationValidityDuration = ConstU32<12>;
+	type DisallowOptOutAttestation = ConstBool<false>;
+	type DisallowNonTEEAttestation = ConstBool<false>;
 }
 
 // Build genesis storage according to the mock runtime.
 #[allow(unused)]
 pub(crate) fn new_test_ext() -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::default().build_storage::<Test>().unwrap();
+	// Customize genesis config here
 	t.into()
 }
 
@@ -110,20 +119,13 @@ pub(crate) fn run_to_block(n: BlockNumber) {
 
 #[allow(unused)]
 pub(crate) fn take_events() -> Vec<RuntimeEvent> {
-	let events = System::events()
-		.into_iter()
-		.map(|i| i.event)
-		.collect::<Vec<_>>();
+	let events = System::events().into_iter().map(|i| i.event).collect::<Vec<_>>();
 	System::reset_events();
 	events
 }
 
 #[allow(unused)]
-pub(crate) fn set_balance(
-	who: AccountId,
-	new_free: Balance,
-	new_reserved: Balance
-) {
+pub(crate) fn set_balance(who: AccountId, new_free: Balance, new_reserved: Balance) {
 	assert_ok!(Balances::set_balance(RuntimeOrigin::root(), who.into(), new_free, new_reserved));
 	assert_eq!(Balances::free_balance(&who), new_free);
 	assert_eq!(Balances::reserved_balance(&who), new_reserved);
