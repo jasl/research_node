@@ -15,7 +15,9 @@ use sp_runtime::{
 };
 use sp_core::{H256, sr25519};
 use sp_io::crypto::sr25519_verify;
-use crate::types::{Attestation, AttestationMethod, AttestationVerifyMaterial, VerifiedAttestation, FlipFlopStage, RegistrationPayload, WorkerInfo, WorkerStatus, AttestationError};
+use crate::types::{
+	Attestation, AttestationMethod, AttestationVerifyMaterial, VerifiedAttestation,
+	FlipFlopStage, OnlinePayload, WorkerInfo, WorkerStatus, AttestationError};
 
 type AccountIdLookupOf<T> = <<T as frame_system::Config>::Lookup as StaticLookup>::Source;
 type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
@@ -46,9 +48,13 @@ pub(crate) mod pallet {
 		/// Time used for verify attestation
 		type UnixTime: UnixTime;
 
-		/// The minimum amount required to keep a worker registration.
+		/// Max number of clean up offline workers queue
 		#[pallet::constant]
-		type MaxPendingOfflineWorkers: Get<u32>;
+		type MarkingOfflinePerBlockLimit: Get<u32>;
+
+		/// Max number of moving unresponsive workers to pending offline workers queue
+		#[pallet::constant]
+		type MarkingUnresponsivePerBlockLimit: Get<u32>;
 
 		/// The minimum amount required to keep a worker registration.
 		#[pallet::constant]
@@ -71,7 +77,7 @@ pub(crate) mod pallet {
 		/// Allow Opt out attestation
 		///
 		/// SHOULD NOT SET TO FALSE ON PRODUCTION!!!
-		// #[pallet::constant]
+		#[pallet::constant]
 		type DisallowNonTEEAttestation: Get<bool>;
 
 		// TODO: type WeightInfo: WeightInfo;
@@ -91,9 +97,13 @@ pub(crate) mod pallet {
 		/// The worker is requesting offline
 		RequestingOffline { worker: T::AccountId },
 		/// The worker is offline
-		Offline { worker: T::AccountId },
+		Offline { worker: T::AccountId, force: bool },
 		/// The worker send heartbeat successfully
 		HeartbeatReceived { worker: T::AccountId },
+		/// The work refresh attestation successfully
+		AttestationRefreshed { worker: T::AccountId },
+		/// The work refresh attestation expired
+		AttestationExpired { worker: T::AccountId },
 	}
 
 	// Errors inform users that something went wrong.
@@ -124,7 +134,11 @@ pub(crate) mod pallet {
 		/// Attestation invalid,
 		InvalidAttestation,
 		/// Attestation payload invalid
-		InvalidAttestationPayload,
+		CanNotVerifyPayload,
+		/// Can not downgrade
+		CanNotDowngrade,
+		/// Worker software changed, it must offline first
+		SoftwareChanged,
 		/// Can't verify payload
 		MismatchedPayloadSignature,
 		/// The runtime disallowed NonTEE worker
@@ -149,7 +163,7 @@ pub(crate) mod pallet {
 	/// Storage for pending offline workers
 	#[pallet::storage]
 	#[pallet::getter(fn pending_offline_workers)]
-	pub type PendingOfflineWorkers<T: Config> = StorageValue<_, BoundedVec<T::AccountId, T::MaxPendingOfflineWorkers>, ValueQuery>;
+	pub type PendingOfflineWorkers<T: Config> = CountedStorageMap<_, Identity, T::AccountId, ()>;
 
 	/// Storage for flip set, this is for online checking
 	#[pallet::storage]
@@ -165,6 +179,15 @@ pub(crate) mod pallet {
 	#[pallet::storage]
 	#[pallet::getter(fn flip_flop_stage)]
 	pub type FlipOrFlop<T> = StorageValue<_, FlipFlopStage, ValueQuery>;
+
+	#[pallet::hooks]
+	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+		fn on_initialize(n: T::BlockNumber) -> Weight {
+			// TODO: Check flipflop, mark unresponsive and move to PendingOfflineWorkers
+			// TODO: Clean up PendingOfflineWorkers, offline them
+			T::DbWeight::get().reads(1)
+		}
+	}
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
@@ -188,11 +211,21 @@ pub(crate) mod pallet {
 		pub fn register(
 			origin: OriginFor<T>,
 			initial_deposit: BalanceOf<T>,
-			payload: RegistrationPayload<T::AccountId>,
+			worker: T::AccountId
+		) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+			Self::do_register(who, initial_deposit, worker)
+		}
+
+		#[pallet::weight(0)]
+		#[transactional]
+		pub fn refresh_attestation(
+			origin: OriginFor<T>,
+			payload: OnlinePayload,
 			attestation: Option<Attestation>,
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-			Self::do_register(who, initial_deposit, payload, attestation)
+			Self::do_refresh_attestation(who, payload, attestation)
 		}
 
 		/// Deregister a computing workers.
@@ -206,9 +239,13 @@ pub(crate) mod pallet {
 		/// The worker claim for online
 		#[pallet::weight(0)]
 		#[transactional]
-		pub fn online(origin: OriginFor<T>) -> DispatchResult {
+		pub fn online(
+			origin: OriginFor<T>,
+			payload: OnlinePayload,
+			attestation: Option<Attestation>,
+		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-			Self::do_online(who)
+			Self::do_online(who, payload, attestation)
 		}
 
 		/// The worker requesting offline
@@ -217,6 +254,14 @@ pub(crate) mod pallet {
 		pub fn requesting_offline(origin: OriginFor<T>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 			Self::do_requesting_offline(who)
+		}
+
+		/// The worker force offline, slashing will apply
+		#[pallet::weight(0)]
+		#[transactional]
+		pub fn force_offline(origin: OriginFor<T>) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+			Self::do_force_offline(who)
 		}
 
 		/// Worker report it is still online, must called by the worker
@@ -233,48 +278,23 @@ impl<T: Config> Pallet<T> {
 	fn do_register(
 		who: T::AccountId,
 		initial_deposit: BalanceOf<T>,
-		payload: RegistrationPayload<T::AccountId>,
-		attestation: Option<Attestation>,
+		worker: T::AccountId,
 	) -> DispatchResult {
-		let worker = payload.account.clone();
 		ensure!(who != worker, Error::<T>::InvalidOwner);
 
 		let initial_reserved_deposit = T::ReservedDeposit::get();
 		ensure!(initial_deposit >= initial_reserved_deposit, Error::<T>::InitialDepositTooLow);
 
-		Self::ensure_attestation_provided(&attestation)?;
-
 		ensure!(!Workers::<T>::contains_key(&worker), Error::<T>::AlreadyRegistered);
-
-		let mut attestation_method: Option<AttestationMethod> = None;
-		if let Some(attestation) = attestation {
-			attestation_method = Some(attestation.method());
-			let verified = Self::verify_attestation(&attestation)?;
-
-			let encode_worker = T::AccountId::encode(&worker);
-			let h256_worker = H256::from_slice(&encode_worker);
-			let worker_public_key = sr25519::Public::from_h256(h256_worker);
-
-			let encoded_message = Encode::encode(&payload);
-
-			if let Some(signature) =
-				sr25519::Signature::from_slice(verified.payload()) {
-				if !sr25519_verify(&signature, &encoded_message, &worker_public_key) {
-					return Err(Error::<T>::MismatchedPayloadSignature.into())
-				}
-			} else {
-				return Err(Error::<T>::InvalidAttestationPayload.into())
-			}
-		}
 
 		let worker_info = WorkerInfo {
 			account: worker.clone(),
 			owner: who.clone(),
 			reserved: initial_reserved_deposit,
 			status: WorkerStatus::Registered,
-			spec_version: payload.spec_version,
-			attestation_method,
-			attested_at: frame_system::Pallet::<T>::block_number(),
+			spec_version: 0,
+			attestation_method: None,
+			attested_at: T::BlockNumber::default(),
 		};
 
 		<T as Config>::Currency::transfer(&who, &worker, initial_deposit, ExistenceRequirement::KeepAlive)?;
@@ -286,7 +306,10 @@ impl<T: Config> Pallet<T> {
 		Ok(())
 	}
 
-	fn do_deregister(who: T::AccountId, worker: T::AccountId) -> DispatchResult {
+	fn do_deregister(
+		who: T::AccountId,
+		worker: T::AccountId
+	) -> DispatchResult {
 		let worker_info = Workers::<T>::get(&worker).ok_or(Error::<T>::NotExists)?;
 		Self::ensure_owner(&who, &worker_info)?;
 		ensure!(
@@ -310,24 +333,106 @@ impl<T: Config> Pallet<T> {
 		Ok(())
 	}
 
-	pub fn do_online(who: T::AccountId) -> DispatchResult {
+	pub fn do_online(
+		who: T::AccountId,
+		payload: OnlinePayload,
+		attestation: Option<Attestation>,
+	) -> DispatchResult {
 		let mut worker_info = Workers::<T>::get(&who).ok_or(Error::<T>::NotExists)?;
 		Self::ensure_worker(&who, &worker_info)?;
 
 		ensure!(
 			worker_info.status == WorkerStatus::Registered ||
-			worker_info.status == WorkerStatus::Offline,
+			worker_info.status == WorkerStatus::Offline ||
+			worker_info.status == WorkerStatus::Unresponsive,
 			Error::<T>::WrongStatus
 		);
 
-		Self::ensure_worker_attestation_validity(&worker_info)?;
+		if worker_info.spec_version > payload.spec_version {
+			return Err(Error::<T>::CanNotDowngrade.into())
+		}
 
+		Self::ensure_attestation_provided(&attestation)?;
+
+		let mut attestation_method: Option<AttestationMethod> = None;
+		if let Some(attestation) = attestation {
+			attestation_method = Some(attestation.method());
+			let verified = Self::verify_attestation(&attestation)?;
+
+			let encode_worker = T::AccountId::encode(&who);
+			let h256_worker = H256::from_slice(&encode_worker);
+			let worker_public_key = sr25519::Public::from_h256(h256_worker);
+
+			let encoded_message = Encode::encode(&payload);
+
+			if let Some(signature) =
+				sr25519::Signature::from_slice(verified.payload()) {
+				if !sr25519_verify(&signature, &encoded_message, &worker_public_key) {
+					return Err(Error::<T>::MismatchedPayloadSignature.into())
+				}
+			} else {
+				return Err(Error::<T>::CanNotVerifyPayload.into())
+			}
+		}
+
+		if worker_info.status == WorkerStatus::Unresponsive {
+			PendingOfflineWorkers::<T>::remove(&who);
+		}
+
+		worker_info.spec_version = payload.spec_version;
+		worker_info.attestation_method = attestation_method;
+		worker_info.attested_at = frame_system::Pallet::<T>::block_number();
 		worker_info.status = WorkerStatus::Online;
 		Workers::<T>::insert(&who, worker_info);
 
 		Self::flipflop_for_online(&who);
 
 		Self::deposit_event(Event::<T>::Online { worker: who });
+		Ok(())
+	}
+
+	fn do_refresh_attestation(
+		who: T::AccountId,
+		payload: OnlinePayload,
+		attestation: Option<Attestation>,
+	) -> DispatchResult {
+		let mut worker_info = Workers::<T>::get(&who).ok_or(Error::<T>::NotExists)?;
+		Self::ensure_worker(&who, &worker_info)?;
+
+		if worker_info.attestation_method.is_none() {
+			return Ok(())
+		}
+
+		ensure!(
+			worker_info.spec_version == payload.spec_version,
+			Error::<T>::SoftwareChanged
+		);
+
+		Self::ensure_attestation_method(&attestation, &worker_info)?;
+
+		if let Some(attestation) = attestation {
+			let verified = Self::verify_attestation(&attestation)?;
+
+			let encode_worker = T::AccountId::encode(&who);
+			let h256_worker = H256::from_slice(&encode_worker);
+			let worker_public_key = sr25519::Public::from_h256(h256_worker);
+
+			let encoded_message = Encode::encode(&payload);
+
+			if let Some(signature) =
+				sr25519::Signature::from_slice(verified.payload()) {
+				if !sr25519_verify(&signature, &encoded_message, &worker_public_key) {
+					return Err(Error::<T>::MismatchedPayloadSignature.into())
+				}
+			} else {
+				return Err(Error::<T>::CanNotVerifyPayload.into())
+			}
+		}
+
+		worker_info.attested_at = frame_system::Pallet::<T>::block_number();
+		Workers::<T>::insert(&who, worker_info);
+
+		Self::deposit_event(Event::<T>::AttestationRefreshed { worker: who });
 		Ok(())
 	}
 
@@ -340,19 +445,74 @@ impl<T: Config> Pallet<T> {
 			Error::<T>::NotOnline
 		);
 
-		worker_info.status = WorkerStatus::RequestingOffline;
+		// The fast path, the worker can safely offline if no workload
+		worker_info.status = WorkerStatus::Offline;
 		Workers::<T>::insert(&who, worker_info);
 
-		Self::deposit_event(Event::<T>::RequestingOffline { worker: who });
+		FlipSet::<T>::remove(&who);
+		FlopSet::<T>::remove(&who);
+		Self::deposit_event(Event::<T>::Offline { worker: who, force: false });
+
+		// TODO: enable this path when we have real workload
+		// worker_info.status = WorkerStatus::RequestingOffline;
+		// Workers::<T>::insert(&who, worker_info);
+		//
+		// PendingOfflineWorkers::<T>::insert(&who, ());
+		// // It should keep sending heartbeat until really offline
+		//
+		// Self::deposit_event(Event::<T>::RequestingOffline { worker: who });
+
+		Ok(())
+	}
+
+	pub fn do_force_offline(who: T::AccountId) -> DispatchResult {
+		let mut worker_info = Workers::<T>::get(&who).ok_or(Error::<T>::NotExists)?;
+		Self::ensure_worker(&who, &worker_info)?;
+
+		ensure!(
+			worker_info.status == WorkerStatus::Online ||
+			worker_info.status == WorkerStatus::RefreshRegistrationRequired ||
+			worker_info.status == WorkerStatus::RequestingOffline ||
+			worker_info.status == WorkerStatus::RequestingOffline ||
+			worker_info.status == WorkerStatus::Unresponsive,
+			Error::<T>::WrongStatus
+		);
+
+		worker_info.status = WorkerStatus::Offline;
+		Workers::<T>::insert(&who, worker_info);
+
+		FlipSet::<T>::remove(&who);
+		FlopSet::<T>::remove(&who);
+		PendingOfflineWorkers::<T>::remove(&who);
+
+		// TODO: Apply slash
+
+		Self::deposit_event(Event::<T>::Offline { worker: who, force: true });
 		Ok(())
 	}
 
 	pub fn do_heartbeat(who: &T::AccountId) -> DispatchResult {
-		let worker_info = Workers::<T>::get(&who).ok_or(Error::<T>::NotExists)?;
+		let mut worker_info = Workers::<T>::get(&who).ok_or(Error::<T>::NotExists)?;
 		Self::ensure_worker(&who, &worker_info)?;
-		ensure!(worker_info.status == WorkerStatus::Online, Error::<T>::NotOnline);
+		ensure!(
+			worker_info.status == WorkerStatus::Online ||
+			worker_info.status == WorkerStatus::RequestingOffline ||
+			worker_info.status == WorkerStatus::RefreshRegistrationRequired, Error::<T>::NotOnline);
 
 		Self::flipflop(who)?;
+
+		Self::deposit_event(Event::<T>::HeartbeatReceived { worker: who.clone() });
+
+		// TODO: Check attestation expires, mark to `RefreshRegistrationRequired` and move to PendingOfflineWorkers
+		let current_block = frame_system::Pallet::<T>::block_number();
+		if current_block - worker_info.attested_at > T::AttestationValidityDuration::get().into() {
+			worker_info.status = WorkerStatus::RefreshRegistrationRequired;
+			Workers::<T>::insert(&who, worker_info);
+
+			PendingOfflineWorkers::<T>::insert(&who, ());
+
+			Self::deposit_event(Event::<T>::AttestationExpired { worker: who.clone() });
+		}
 
 		Ok(())
 	}

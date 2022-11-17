@@ -19,6 +19,7 @@ const parsedArgs = parse(Deno.args, {
     "rpcUrl": "rpc-url",
     "workPath": "work-path",
     "ownerPhrase": "owner-phrase",
+    "refreshAttestationInterval": "refresh-attestation-interval",
   },
   boolean: [
     "help",
@@ -39,6 +40,7 @@ const parsedArgs = parse(Deno.args, {
     help: false,
     version: false,
     ownerPhrase: "",
+    refreshAttestationInterval: 10,
   },
 });
 
@@ -166,8 +168,7 @@ function createSubstrateApi(rpcUrl: string): ApiPromise | null {
     types: {
       Address: "AccountId",
       LookupSource: "AccountId",
-      RegistrationPayload: {
-        account: "AccountId",
+      OnlinePayload: {
         spec_version: "u32",
       },
       AttestationPayload: "BoundedVec<u8, 64000>",
@@ -320,8 +321,10 @@ api.on("error", (e) => {
 await api.isReady.catch((e) => console.error(e));
 
 interface Locals {
-  sent_register_at?: number;
-  sent_initialize_at?: number;
+  sentRegisterAt?: number;
+  sentOnlineAt?: number;
+  sentHeartbeatAt?: number;
+  sentRefreshAttestationAt?: number;
 }
 
 declare global {
@@ -330,6 +333,8 @@ declare global {
     ownerKeyPair: KeyringPair | null;
     substrateApi: ApiPromise;
 
+    refreshAttestationInterval: number;
+
     finalizedBlockHash: string;
     finalizedBlockNumber: number;
 
@@ -337,6 +342,7 @@ declare global {
     latestBlockNumber: number;
 
     workerStatus: WorkerStatus;
+    attestedAt: number;
 
     locals: Locals;
   }
@@ -346,6 +352,11 @@ window.workerKeyPair = workerKeyPair;
 window.ownerKeyPair = ownerKeyPair;
 window.substrateApi = api;
 
+window.refreshAttestationInterval = parseInt(parsedArgs.refreshAttestationInterval)
+if (isNaN(window.refreshAttestationInterval)) {
+  window.refreshAttestationInterval = 40000
+}
+
 window.finalizedBlockNumber = 0;
 window.finalizedBlockHash = "";
 
@@ -353,6 +364,7 @@ window.latestBlockNumber = 0;
 window.latestBlockHash = "";
 
 window.workerStatus = WorkerStatus.Unregistered;
+window.attestedAt = 0;
 
 window.locals = {};
 
@@ -385,7 +397,7 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
   ]);
 
   if (workerInfo === null || workerInfo === undefined) {
-    if (window.locals.sent_register_at && window.locals.sent_register_at >= finalizedBlockNumber) {
+    if (window.locals.sentRegisterAt && window.locals.sentRegisterAt >= finalizedBlockNumber) {
       logger.debug("Waiting register extrinsic finalize");
 
       return;
@@ -393,71 +405,79 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
 
     logger.warning("Worker hasn't registered");
     if (window.ownerKeyPair !== null) {
-      const payload = api.createType("RegistrationPayload", {
-        "account": window.workerKeyPair.address,
-        "spec_version": SPEC_VERSION,
-      });
-      const payloadSig = window.workerKeyPair.sign(payload.toU8a());
-      const attestation = createAttestation(api, u8aToHex(payloadSig));
-
-      console.log(payload.toHuman())
-
       const initialDeposit = numberToBalance(150);
-      logger.info(`Sending "computing_workers.register(..)`);
-      const txPromise = api.tx.computingWorkers.register(initialDeposit, payload, attestation);
+      logger.info(`Sending "computing_workers.register(initialDeposit, worker)`);
+      const txPromise = api.tx.computingWorkers.register(initialDeposit, window.workerKeyPair.address);
       logger.debug(`Call hash: ${txPromise.toHex()}`);
       const txHash = await txPromise.signAndSend(window.ownerKeyPair, { nonce: -1 });
       logger.info(`Transaction hash: ${txHash.toHex()}`);
       // TODO: Catch whether failed
 
-      window.locals.sent_register_at = latestBlockNumber;
-    } else {
-      const payload = api.createType("RegistrationPayload", {
-        "account": window.workerKeyPair.address,
-        "spec_version": SPEC_VERSION,
-      });
-      const payloadSig = window.workerKeyPair.sign(payload.toU8a());
-      const attestation = createAttestation(api, u8aToHex(payloadSig));
-      const initialDeposit = numberToBalance(150);
-      const txPromise = api.tx.computingWorkers.register(initialDeposit, payload, attestation);
-
-      console.log(`Copy & paste below call hash to https://polkadot.js.org/apps/?rpc=${encodeURI(parsedArgs.rpcUrl)}#/extrinsics/decode for register the worker`)
-      console.log(`Call hash: ${txPromise.toHex()}`);
+      window.locals.sentRegisterAt = latestBlockNumber;
     }
 
     return;
   } else if (window.workerStatus === WorkerStatus.Unregistered && workerInfo.status === WorkerStatus.Registered) {
     logger.info("Worker has registered.");
-    window.locals.sent_register_at = undefined;
+    window.locals.sentRegisterAt = undefined;
     window.workerStatus = workerInfo.status;
     return;
   }
 
   if (workerInfo.status === WorkerStatus.Registered) {
-    if (window.locals.sent_initialize_at && window.locals.sent_initialize_at >= finalizedBlockNumber) {
-      logger.debug("Waiting initialization extrinsic finalize");
+    if (window.locals.sentOnlineAt && window.locals.sentOnlineAt >= finalizedBlockNumber) {
+      logger.debug("Waiting online extrinsic finalize");
 
       return;
     }
 
-    logger.info(`Sending "computing_workers.online()`);
-    const txPromise = api.tx.computingWorkers.online();
+    const payload = api.createType("OnlinePayload", {
+      "spec_version": SPEC_VERSION,
+    });
+    const payloadSig = window.workerKeyPair.sign(payload.toU8a());
+    const attestation = createAttestation(api, u8aToHex(payloadSig));
+
+    logger.info(`Sending "computing_workers.online(payload, attestation)`);
+    const txPromise = api.tx.computingWorkers.online(payload, attestation);
     logger.debug(`Call hash: ${txPromise.toHex()}`);
     const txHash = await txPromise.signAndSend(window.workerKeyPair, { nonce: -1 });
     logger.info(`Transaction hash: ${txHash.toHex()}`);
     // TODO: Catch whether failed
 
-    window.locals.sent_initialize_at = latestBlockNumber;
+    window.locals.sentOnlineAt = latestBlockNumber;
 
     return;
   } else if (window.workerStatus === WorkerStatus.Registered && workerInfo.status === WorkerStatus.Online) {
     logger.info("Worker is online.");
-    window.locals.sent_initialize_at = undefined;
+    window.locals.sentOnlineAt = undefined;
     window.workerStatus = workerInfo.status;
     return;
   }
 
+  if (workerInfo.status === WorkerStatus.Online || workerInfo.status === WorkerStatus.RefreshRegistrationRequired) {
+    if (window.locals.sentRefreshAttestationAt === undefined && latestBlockNumber > window.attestedAt + window.refreshAttestationInterval) {
+      const payload = api.createType("OnlinePayload", {
+        "spec_version": SPEC_VERSION,
+      });
+      const payloadSig = window.workerKeyPair.sign(payload.toU8a());
+      const attestation = createAttestation(api, u8aToHex(payloadSig));
+
+      logger.info(`Sending "computing_workers.refreshAttestation(payload, attestation)`);
+      const txPromise = api.tx.computingWorkers.refreshAttestation(payload, attestation);
+      logger.debug(`Call hash: ${txPromise.toHex()}`);
+      const txHash = await txPromise.signAndSend(window.workerKeyPair, { nonce: -1 });
+      logger.info(`Transaction hash: ${txHash.toHex()}`);
+      // TODO: Catch whether failed
+
+      window.locals.sentRefreshAttestationAt = latestBlockNumber;
+    } else if (window.locals.sentRefreshAttestationAt && workerInfo.attestedAt >= window.locals.sentRefreshAttestationAt) {
+      logger.info("Refreshed attestation.");
+      window.locals.sentRefreshAttestationAt = undefined;
+    }
+  }
+
   window.workerStatus = workerInfo.status;
+  window.attestedAt = workerInfo.attestedAt
 
   // Watch worker's balance
   const freeWorkerBalance = balanceToNumber(workerBalance.free);
@@ -495,6 +515,7 @@ router.get("/", (ctx) => {
     workerAddress: window.workerKeyPair.address,
     workerPublicKey: u8aToHex(window.workerKeyPair.publicKey),
     workerStatus: window.workerStatus,
+    attestedAt: window.attestedAt,
     version: VERSION,
     specVersion: SPEC_VERSION,
   };

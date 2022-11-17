@@ -96,8 +96,7 @@ fn verify_non_tee_attestation(
 }
 
 #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
-pub struct RegistrationPayload<Account> {
-	pub account: Account,
+pub struct OnlinePayload {
 	pub spec_version: u32,
 }
 
@@ -115,13 +114,16 @@ pub enum WorkerStatus {
 	/// when accepted jobs processed it can be transited to `Offline` safely without slashing.
 	/// Transit from `Online`
 	RequestingOffline,
+	/// The worker not sent heartbeat during a period, It shall be moved to pending offline queue
+	/// Transit from `Online`
+	Unresponsive,
 	/// The worker is online so it can accept job
-	/// Transit from `Registered`, `Offline`, `RefreshRegistrationRequired`,
+	/// Transit from `Registered`, `Offline`, `RefreshRegistrationRequired`, and `Unresponsive`
 	/// not sure `RequestingOffline`
 	Online,
 	/// The worker is offline so it can't accept job.
 	/// Transit from `RequestingOffline`, `RefreshRegistrationRequired` when job queue cleared,
-	/// and `Online` (when slashing)
+	/// and `Unresponsive` (when slashing)
 	Offline,
 	/// The worker is pending to deregister,
 	/// It is safe to be deregistered if the worker is `Offline`,

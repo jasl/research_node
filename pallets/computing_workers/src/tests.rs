@@ -21,18 +21,13 @@ fn register_worker_for(
 ) -> WorkerInfo<AccountId, Balance, BlockNumber> {
 	let owner_balance = Balances::free_balance(owner);
 
-	let payload = RegistrationPayload {
-		account: worker,
-		spec_version: 1,
-	};
 	assert_ok!(
-		ComputingWorkers::register(RuntimeOrigin::signed(owner), initial_deposit, payload, None)
+		ComputingWorkers::register(RuntimeOrigin::signed(owner), initial_deposit, worker)
 	);
 
 	let worker_info = ComputingWorkers::workers(worker).unwrap();
 
 	assert_eq!(worker_info.status, WorkerStatus::Registered);
-	assert_eq!(worker_info.spec_version, 1);
 	assert_eq!(Balances::free_balance(owner), owner_balance - initial_deposit);
 	assert_eq!(Balances::reserved_balance(worker), worker_info.reserved);
 	assert_eq!(Balances::free_balance(worker), initial_deposit - worker_info.reserved);
@@ -50,21 +45,16 @@ fn register_works() {
 		run_to_block(1);
 		set_balance(ALICE, 101 * DOLLARS, 0);
 
-		let payload = RegistrationPayload {
-			account: ALICE_WORKER,
-			spec_version: 1,
-		};
-
 		assert_noop!(
 			ComputingWorkers::register(
-				RuntimeOrigin::signed(ALICE), 10 * DOLLARS, payload.clone(), None
+				RuntimeOrigin::signed(ALICE), 10 * DOLLARS, ALICE_WORKER,
 			),
 			Error::<Test>::InitialDepositTooLow
 		);
 
 		assert_noop!(
 			ComputingWorkers::register(
-				RuntimeOrigin::signed(ALICE), 100 * DOLLARS, payload.clone(), None
+				RuntimeOrigin::signed(ALICE), 100 * DOLLARS, ALICE_WORKER
 			),
 			Error::<Test>::AlreadyRegistered
 		);
