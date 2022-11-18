@@ -42,7 +42,7 @@ const parsedArgs = parse(Deno.args, {
     help: false,
     version: false,
     ownerPhrase: "",
-    refreshAttestationInterval: 10,
+    refreshAttestationInterval: 100, // 40000,
     noHeartbeat: false
   },
 });
@@ -511,7 +511,7 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
 
       window.locals.sentHeartbeatAt = latestBlockNumber;
     } else if (finalizedBlockNumber > window.locals.sentHeartbeatAt) {
-      window.locals.sentHeartbeatAt === undefined;
+      window.locals.sentHeartbeatAt = undefined;
     }
   }
 

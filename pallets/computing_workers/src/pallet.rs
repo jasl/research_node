@@ -7,7 +7,7 @@ use crate::types::{
 	VerifiedAttestation, WorkerInfo, WorkerStatus,
 };
 use frame_support::{
-	dispatch::DispatchResult,
+	dispatch::{DispatchResult, DispatchError},
 	ensure,
 	traits::{Currency, ExistenceRequirement, Get, ReservableCurrency, UnixTime},
 	transactional,
@@ -17,7 +17,7 @@ use sp_core::{sr25519, H256};
 use sp_io::crypto::sr25519_verify;
 use sp_runtime::{
 	traits::{StaticLookup, Zero},
-	DispatchError, SaturatedConversion,
+	SaturatedConversion,
 };
 use sp_std::prelude::*;
 
@@ -209,74 +209,85 @@ pub(crate) mod pallet {
 			}
 			match flip_or_flop {
 				FlipFlopStage::FlipToFlop => {
-					let unresponsive_workers = FlipSet::<T>::iter_keys()
-						.take(T::MarkingUnresponsivePerBlockLimit::get() as usize)
-						.collect::<Vec<_>>();
-					if unresponsive_workers.is_empty() {
+					let iter =
+						FlipSet::<T>::iter_keys().take(T::MarkingUnresponsivePerBlockLimit::get() as usize);
+					let total_count = FlipSet::<T>::count();
+
+					let mut i: u64 = 0;
+					for worker in iter {
+						FlipSet::<T>::remove(&worker);
+						PendingOfflineWorkers::<T>::insert(&worker, ());
+						Workers::<T>::mutate(&worker, |worker_info| {
+							worker_info.as_mut().map(|mut info| info.status = WorkerStatus::Unresponsive);
+						});
+
+						Self::deposit_event(Event::<T>::Unresponsive { worker });
+
+						i += 1;
+					}
+
+					if i >= total_count as u64 {
 						FlipOrFlop::<T>::set(FlipFlopStage::Flop);
 						writes += 1;
 					} else {
-						for worker in &unresponsive_workers {
-							FlipSet::<T>::remove(worker);
-							PendingOfflineWorkers::<T>::insert(worker, ());
-							Workers::<T>::mutate(worker, |worker_info| {
-								worker_info.as_mut().map(|mut info| info.status = WorkerStatus::Unresponsive);
-							});
-
-							Self::deposit_event(Event::<T>::Unresponsive { worker: worker.clone() });
-						}
-						reads += unresponsive_workers.len() as u64;
-						writes += unresponsive_workers.len().saturating_mul(3) as u64;
+						reads += i;
+						writes += i.saturating_mul(3);
 					}
 				},
 				FlipFlopStage::FlopToFlip => {
-					let unresponsive_workers = FlopSet::<T>::iter_keys()
-						.take(T::MarkingUnresponsivePerBlockLimit::get() as usize)
-						.collect::<Vec<_>>();
-					if unresponsive_workers.is_empty() {
+					let iter =
+						FlopSet::<T>::iter_keys().take(T::MarkingUnresponsivePerBlockLimit::get() as usize);
+					let total_count = FlopSet::<T>::count();
+
+					let mut i: u64 = 0;
+					for worker in iter {
+						FlopSet::<T>::remove(&worker);
+						PendingOfflineWorkers::<T>::insert(&worker, ());
+						Workers::<T>::mutate(&worker, |worker_info| {
+							worker_info.as_mut().map(|mut info| info.status = WorkerStatus::Unresponsive);
+						});
+
+						Self::deposit_event(Event::<T>::Unresponsive { worker });
+
+						i += 1;
+					}
+
+					if i >= total_count as u64 {
 						FlipOrFlop::<T>::set(FlipFlopStage::Flip);
 						writes += 1;
 					} else {
-						for worker in &unresponsive_workers {
-							FlopSet::<T>::remove(worker);
-							PendingOfflineWorkers::<T>::insert(worker, ());
-							Workers::<T>::mutate(worker, |worker_info| {
-								worker_info.as_mut().map(|mut info| info.status = WorkerStatus::Unresponsive);
-							});
-
-							Self::deposit_event(Event::<T>::Unresponsive { worker: worker.clone() });
-						}
-						reads += unresponsive_workers.len().saturating_mul(2) as u64;
-						writes += unresponsive_workers.len().saturating_mul(3) as u64;
+						reads += i;
+						writes += i.saturating_mul(3);
 					}
 				},
 				_ => {},
 			}
 
 			if PendingOfflineWorkers::<T>::count() > 0 {
-				let pending_removing_workers = PendingOfflineWorkers::<T>::iter_keys()
-					.take(T::MarkingOfflinePerBlockLimit::get() as usize)
-					.collect::<Vec<_>>();
-				assert!(pending_removing_workers.len() > 0); // it shouldn't be zero
-
-				for worker in &pending_removing_workers {
+				let iter =
+					PendingOfflineWorkers::<T>::iter_keys().take(T::MarkingOfflinePerBlockLimit::get() as usize);
+				let mut i: u64 = 0;
+				for worker in iter {
 					// Worker who is `RequestingOffline`, `RefreshRegistrationRequired` should answer heartbeat as is
 					// `Online`
-					FlipSet::<T>::remove(worker);
-					FlopSet::<T>::remove(worker);
-					PendingOfflineWorkers::<T>::remove(worker);
+					FlipSet::<T>::remove(&worker);
+					FlopSet::<T>::remove(&worker);
+					PendingOfflineWorkers::<T>::remove(&worker);
 
 					// TODO: Apply slash
 
-					Workers::<T>::mutate(worker, |worker_info| {
+					Workers::<T>::mutate(&worker, |worker_info| {
 						worker_info.as_mut().map(|mut info| info.status = WorkerStatus::Offline);
 					});
 
 					let slashed = false;
-					Self::deposit_event(Event::<T>::Offline { worker: worker.clone(), force: false, slashed });
+					Self::deposit_event(Event::<T>::Offline { worker, force: false, slashed });
+
+					i += 1;
 				}
-				reads += pending_removing_workers.len().saturating_mul(3) as u64;
-				writes += pending_removing_workers.len().saturating_mul(3) as u64;
+
+				reads += i.saturating_mul(3);
+				writes += i.saturating_mul(3);
 			}
 
 			T::DbWeight::get().reads_writes(reads, writes)
