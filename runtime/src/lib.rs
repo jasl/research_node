@@ -7,6 +7,7 @@
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
 use scale_codec::{Decode, Encode, MaxEncodedLen};
+use scale_info::TypeInfo;
 use sp_api::impl_runtime_apis;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
@@ -48,7 +49,9 @@ pub use sp_runtime::{Perbill, Permill};
 pub use node_primitives::{
 	constants,
 	opaque::{self, Header},
-	types::{AccountId, Balance, BlockNumber, Hash, Index, Moment, Signature},
+	types::{
+		AccountId, AssetId, Balance, CollectionId, ItemId, BlockNumber, Hash, Index, Moment, Signature
+	},
 };
 
 mod pallet_configs;
@@ -94,7 +97,7 @@ impl Contains<RuntimeCall> for BaseCallFilter {
 
 /// The type used to represent the kinds of proxying allowed.
 #[derive(
-	Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Encode, Decode, RuntimeDebug, MaxEncodedLen, scale_info::TypeInfo,
+	Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Encode, Decode, RuntimeDebug, MaxEncodedLen, TypeInfo,
 )]
 pub enum ProxyType {
 	Any,
@@ -154,6 +157,8 @@ construct_runtime!(
 		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>} = 60,
 		TransactionPayment: pallet_transaction_payment::{Pallet, Storage, Config, Event<T>} = 61,
 		Vesting: pallet_vesting::{Pallet, Call, Storage, Event<T>, Config<T>} = 62,
+		Assets: pallet_assets::{Pallet, Call, Storage, Event<T>} = 63,
+		Uniques: pallet_uniques::{Pallet, Call, Storage, Event<T>} = 64,
 
 		// The main stage
 		Contracts: pallet_contracts::{Pallet, Call, Storage, Event<T>} = 100,
@@ -219,6 +224,8 @@ mod benches {
 		[pallet_vesting, Vesting]
 		[pallet_grandpa, Grandpa]
 		[pallet_contracts, Contracts]
+		[pallet_assets, Assets]
+		[pallet_uniques, Uniques]
 		[pallet_computing_workers, ComputingWorkers]
 	);
 }

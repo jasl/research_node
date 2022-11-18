@@ -5,8 +5,8 @@ impl pallet_computing_workers::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;
 	type UnixTime = Timestamp;
-	type MarkingOfflinePerBlockLimit = ConstU32<20>;
-	type MarkingUnresponsivePerBlockLimit = ConstU32<20>;
+	type MarkingOfflinePerBlockLimit = ConstU32<1000>;
+	type MarkingUnresponsivePerBlockLimit = ConstU32<1000>;
 	type ReservedDeposit = ConstU128<{ 100 * UNITS }>;
 	type CollectingHeartbeatsDuration = ConstU32<10>; // TODO: ConstU32<240>; // 240 block * 6 sec / 60 sec = 24 min
 	type AttestationValidityDuration = ConstU32<432000>; // 10 B/S * 60 min * 24 hour * 30 days = 432000 block

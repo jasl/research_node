@@ -28,6 +28,15 @@ pub mod types {
 	/// Balance of an account.
 	pub type Balance = u128;
 
+	/// Id of an asset.
+	pub type AssetId = u32;
+
+	/// Id of a NFT collection.
+	pub type CollectionId = u32;
+
+	/// Id of a NFT item.
+	pub type ItemId = u32;
+
 	/// Type used for expressing timestamp.
 	pub type Moment = u64;
 

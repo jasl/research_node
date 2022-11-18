@@ -54,6 +54,9 @@ pallet-vesting = { git = "https://github.com/paritytech/substrate", branch = "ma
 pallet-contracts = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false, features = ["unstable-interface"] }
 pallet-contracts-primitives = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
 
+pallet-assets = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
+pallet-uniques = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
+
 pallet-computing_workers = { path = "../pallets/computing_workers", default-features = false }
 
 # Local Dependencies
@@ -102,6 +105,8 @@ std = [
 	"pallet-vesting/std",
 	"pallet-contracts-primitives/std",
 	"pallet-contracts/std",
+	"pallet-assets/std",
+	"pallet-uniques/std",
 	"pallet-computing_workers/std",
 ]
 runtime-benchmarks = [
@@ -120,6 +125,8 @@ runtime-benchmarks = [
 	"pallet-proxy/runtime-benchmarks",
 	"pallet-vesting/runtime-benchmarks",
 	"pallet-contracts/runtime-benchmarks",
+	"pallet-assets/runtime-benchmarks",
+	"pallet-uniques/runtime-benchmarks",
 	"pallet-computing_workers/runtime-benchmarks",
 ]
 try-runtime = [
@@ -141,5 +148,7 @@ try-runtime = [
 	"pallet-proxy/try-runtime",
 	"pallet-vesting/try-runtime",
 	"pallet-contracts/try-runtime",
+	"pallet-assets/try-runtime",
+	"pallet-uniques/try-runtime",
 	"pallet-computing_workers/try-runtime",
 ]

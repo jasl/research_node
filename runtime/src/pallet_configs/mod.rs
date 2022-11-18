@@ -19,6 +19,9 @@ mod vesting;
 
 mod contracts;
 
+mod assets;
+mod uniques;
+
 mod computing_workers;
 
 mod sudo;
