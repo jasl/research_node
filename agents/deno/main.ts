@@ -20,10 +20,12 @@ const parsedArgs = parse(Deno.args, {
     "workPath": "work-path",
     "ownerPhrase": "owner-phrase",
     "refreshAttestationInterval": "refresh-attestation-interval",
+    "noHeartbeat": "no-heartbeat"
   },
   boolean: [
     "help",
     "version",
+    "noHeartbeat"
   ],
   string: [
     "rpcUrl",
@@ -41,6 +43,7 @@ const parsedArgs = parse(Deno.args, {
     version: false,
     ownerPhrase: "",
     refreshAttestationInterval: 10,
+    noHeartbeat: false
   },
 });
 
@@ -190,7 +193,7 @@ function createSubstrateApi(rpcUrl: string): ApiPromise | null {
       WorkerStatus: {
         _enum: [
           "Registered",
-          "RefreshRegistrationRequired",
+          "RefreshAttestationRequired",
           "RequestingOffline",
           "Online",
           "Offline",
@@ -221,11 +224,19 @@ function createAttestation(api: ApiPromise, payload: any) {
 enum WorkerStatus {
   Unregistered = "Unregistered",
   Registered = "Registered",
-  RefreshRegistrationRequired = "RefreshRegistrationRequired",
+  RefreshAttestationRequired = "RefreshAttestationRequired",
   RequestingOffline = "RequestingOffline",
+  Unresponsive = "Unresponsive",
   Online = "Online",
   Offline = "Offline",
   Deregistering = "Deregistering",
+}
+
+enum FlipFlopStage {
+  Flip = "Flip",
+  Flop = "Flop",
+  // FlipToFlop = "FlipToFlop",
+  // FlopToFlip = "FlopToFlip",
 }
 
 function numberToBalance(value: BN | string | number) {
@@ -334,6 +345,7 @@ declare global {
     substrateApi: ApiPromise;
 
     refreshAttestationInterval: number;
+    noHeartbeat: boolean;
 
     finalizedBlockHash: string;
     finalizedBlockNumber: number;
@@ -352,10 +364,11 @@ window.workerKeyPair = workerKeyPair;
 window.ownerKeyPair = ownerKeyPair;
 window.substrateApi = api;
 
-window.refreshAttestationInterval = parseInt(parsedArgs.refreshAttestationInterval)
+window.refreshAttestationInterval = parseInt(parsedArgs.refreshAttestationInterval);
 if (isNaN(window.refreshAttestationInterval)) {
-  window.refreshAttestationInterval = 40000
+  window.refreshAttestationInterval = 40000;
 }
+window.noHeartbeat = parsedArgs.noHeartbeat;
 
 window.finalizedBlockNumber = 0;
 window.finalizedBlockHash = "";
@@ -389,11 +402,17 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
   );
 
   const apiAt = await api.at(finalizedBlockHash);
-  const [workerInfo, { data: workerBalance }] = await Promise.all([
-    apiAt.query.computingWorkers.workers(window.workerKeyPair.address).then((v) =>
+
+  // Use the latest block instead of finalized one, so we don't delay handle any operation,
+  // but confirm use finalized block
+  const [workerInfo, flipOrFlop, inFlipSet, inFlopSet, { data: workerBalance }] = await Promise.all([
+    api.query.computingWorkers.workers(window.workerKeyPair.address).then((v) =>
       v === null || v === undefined ? null : v.toJSON()
     ),
-    apiAt.query.system.account(window.workerKeyPair.address),
+    api.query.computingWorkers.flipOrFlop().then(stage => stage.toString()),
+    api.query.computingWorkers.flipSet(window.workerKeyPair.address).then(v => v.isSome),
+    api.query.computingWorkers.flopSet(window.workerKeyPair.address).then(v => v.isSome),
+    api.query.system.account(window.workerKeyPair.address),
   ]);
 
   if (workerInfo === null || workerInfo === undefined) {
@@ -424,7 +443,11 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
     return;
   }
 
-  if (workerInfo.status === WorkerStatus.Registered) {
+  if (
+    workerInfo.status === WorkerStatus.Registered ||
+    workerInfo.status === WorkerStatus.Offline ||
+    workerInfo.status === WorkerStatus.Unresponsive
+  ) {
     if (window.locals.sentOnlineAt && window.locals.sentOnlineAt >= finalizedBlockNumber) {
       logger.debug("Waiting online extrinsic finalize");
 
@@ -476,6 +499,22 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
     }
   }
 
+  if (!window.noHeartbeat) {
+    const shouldHeartBeat = (flipOrFlop === FlipFlopStage.Flip && inFlipSet) || (flipOrFlop === FlipFlopStage.Flop && inFlopSet);
+    if (shouldHeartBeat && window.locals.sentHeartbeatAt === undefined) {
+      logger.info(`Sending "computing_workers.heartbeat()`);
+      const txPromise = api.tx.computingWorkers.heartbeat();
+      logger.debug(`Call hash: ${txPromise.toHex()}`);
+      const txHash = await txPromise.signAndSend(window.workerKeyPair, { nonce: -1 });
+      logger.info(`Transaction hash: ${txHash.toHex()}`);
+      // TODO: Catch whether failed
+
+      window.locals.sentHeartbeatAt = latestBlockNumber;
+    } else if (finalizedBlockNumber > window.locals.sentHeartbeatAt) {
+      window.locals.sentHeartbeatAt === undefined;
+    }
+  }
+
   window.workerStatus = workerInfo.status;
   window.attestedAt = workerInfo.attestedAt
 
@@ -495,6 +534,7 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
     }
   }
 
+  // We only handle finalized event
   const events = await apiAt.query.system.events();
   events.forEach(({ event }) => {
     // if (event.section !== "computingWorkers") {

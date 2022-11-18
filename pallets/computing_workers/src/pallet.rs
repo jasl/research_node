@@ -255,6 +255,8 @@ pub(crate) mod pallet {
 					FlopSet::<T>::remove(worker);
 					PendingOfflineWorkers::<T>::remove(worker);
 
+					// TODO: Apply slash
+
 					Workers::<T>::mutate(worker, |worker_info| {
 						worker_info.as_mut().map(|mut info| info.status = WorkerStatus::Offline);
 					});
@@ -549,7 +551,7 @@ impl<T: Config> Pallet<T> {
 
 		ensure!(
 			worker_info.status == WorkerStatus::Online ||
-			worker_info.status == WorkerStatus::RefreshRegistrationRequired ||
+			worker_info.status == WorkerStatus::RefreshAttestationRequired ||
 			worker_info.status == WorkerStatus::RequestingOffline ||
 			worker_info.status == WorkerStatus::RequestingOffline ||
 			worker_info.status == WorkerStatus::Unresponsive,
@@ -575,7 +577,7 @@ impl<T: Config> Pallet<T> {
 		ensure!(
 			worker_info.status == WorkerStatus::Online ||
 			worker_info.status == WorkerStatus::RequestingOffline ||
-			worker_info.status == WorkerStatus::RefreshRegistrationRequired,
+			worker_info.status == WorkerStatus::RefreshAttestationRequired,
 			Error::<T>::NotOnline
 		);
 
@@ -585,7 +587,7 @@ impl<T: Config> Pallet<T> {
 
 		let current_block = frame_system::Pallet::<T>::block_number();
 		if current_block - worker_info.attested_at > T::AttestationValidityDuration::get().into() {
-			worker_info.status = WorkerStatus::RefreshRegistrationRequired;
+			worker_info.status = WorkerStatus::RefreshAttestationRequired;
 			Workers::<T>::insert(&who, worker_info);
 
 			PendingOfflineWorkers::<T>::insert(&who, ());
