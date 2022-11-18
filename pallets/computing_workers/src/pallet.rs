@@ -99,7 +99,7 @@ pub(crate) mod pallet {
 		/// The worker is requesting offline
 		RequestingOffline { worker: T::AccountId },
 		/// The worker is offline
-		Offline { worker: T::AccountId, force: bool },
+		Offline { worker: T::AccountId, force: bool, slashed: bool },
 		/// The worker send heartbeat successfully
 		HeartbeatReceived { worker: T::AccountId },
 		/// The work refresh attestation successfully
@@ -265,6 +265,9 @@ pub(crate) mod pallet {
 					Workers::<T>::mutate(worker, |worker_info| {
 						worker_info.as_mut().map(|mut info| info.status = WorkerStatus::Offline);
 					});
+
+					let slashed = false;
+					Self::deposit_event(Event::<T>::Offline { worker: worker.clone(), force: false, slashed });
 				}
 				reads += pending_removing_workers.len().saturating_mul(3) as u64;
 				writes += pending_removing_workers.len().saturating_mul(3) as u64;
@@ -536,7 +539,7 @@ impl<T: Config> Pallet<T> {
 
 		FlipSet::<T>::remove(&who);
 		FlopSet::<T>::remove(&who);
-		Self::deposit_event(Event::<T>::Offline { worker: who, force: false });
+		Self::deposit_event(Event::<T>::Offline { worker: who, force: false, slashed: false });
 
 		// TODO: enable this path when we have real workload
 		// worker_info.status = WorkerStatus::RequestingOffline;
@@ -571,8 +574,8 @@ impl<T: Config> Pallet<T> {
 		PendingOfflineWorkers::<T>::remove(&who);
 
 		// TODO: Apply slash
-
-		Self::deposit_event(Event::<T>::Offline { worker: who, force: true });
+		let slashed = false;
+		Self::deposit_event(Event::<T>::Offline { worker: who, force: true, slashed });
 		Ok(())
 	}
 
