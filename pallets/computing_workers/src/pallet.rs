@@ -2,23 +2,24 @@
 /// <https://docs.substrate.io/reference/frame-pallets/>
 pub use pallet::*;
 
+use crate::types::{
+	Attestation, AttestationError, AttestationMethod, AttestationVerifyMaterial, FlipFlopStage, OnlinePayload,
+	VerifiedAttestation, WorkerInfo, WorkerStatus,
+};
 use frame_support::{
 	dispatch::DispatchResult,
 	ensure,
-	traits::{Currency, ExistenceRequirement, ReservableCurrency, Get, UnixTime},
+	traits::{Currency, ExistenceRequirement, Get, ReservableCurrency, UnixTime},
 	transactional,
 };
 use scale_codec::Encode;
+use sp_core::{sr25519, H256};
+use sp_io::crypto::sr25519_verify;
 use sp_runtime::{
 	traits::{StaticLookup, Zero},
 	DispatchError, SaturatedConversion,
 };
-use sp_core::{H256, sr25519};
-use sp_io::crypto::sr25519_verify;
 use sp_std::prelude::*;
-use crate::types::{
-	Attestation, AttestationMethod, AttestationVerifyMaterial, VerifiedAttestation,
-	FlipFlopStage, OnlinePayload, WorkerInfo, WorkerStatus, AttestationError};
 
 type AccountIdLookupOf<T> = <<T as frame_system::Config>::Lookup as StaticLookup>::Source;
 type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
@@ -159,7 +160,8 @@ pub(crate) mod pallet {
 	/// Storage for computing_workers.
 	#[pallet::storage]
 	#[pallet::getter(fn workers)]
-	pub type Workers<T: Config> = CountedStorageMap<_, Identity, T::AccountId, WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>>;
+	pub type Workers<T: Config> =
+		CountedStorageMap<_, Identity, T::AccountId, WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>>;
 
 	/// Storage for pending offline workers
 	#[pallet::storage]
@@ -194,19 +196,20 @@ pub(crate) mod pallet {
 						flip_or_flop = FlipFlopStage::FlipToFlop;
 						FlipOrFlop::<T>::set(flip_or_flop);
 						writes += 1;
-					}
+					},
 					FlipFlopStage::Flop => {
 						flip_or_flop = FlipFlopStage::FlopToFlip;
 						FlipOrFlop::<T>::set(flip_or_flop);
 						writes += 1;
 					},
-					_ => {}
+					_ => {},
 				}
 			}
 			match flip_or_flop {
 				FlipFlopStage::FlipToFlop => {
-					let unresponsive_workers =
-						FlipSet::<T>::iter_keys().take(T::MarkingUnresponsivePerBlockLimit::get() as usize).collect::<Vec<_>>();
+					let unresponsive_workers = FlipSet::<T>::iter_keys()
+						.take(T::MarkingUnresponsivePerBlockLimit::get() as usize)
+						.collect::<Vec<_>>();
 					if unresponsive_workers.is_empty() {
 						FlipOrFlop::<T>::set(FlipFlopStage::Flop);
 						writes += 1;
@@ -221,10 +224,11 @@ pub(crate) mod pallet {
 						reads += unresponsive_workers.len() as u64;
 						writes += unresponsive_workers.len().saturating_mul(3) as u64;
 					}
-				}
+				},
 				FlipFlopStage::FlopToFlip => {
-					let unresponsive_workers =
-						FlopSet::<T>::iter_keys().take(T::MarkingUnresponsivePerBlockLimit::get() as usize).collect::<Vec<_>>();
+					let unresponsive_workers = FlopSet::<T>::iter_keys()
+						.take(T::MarkingUnresponsivePerBlockLimit::get() as usize)
+						.collect::<Vec<_>>();
 					if unresponsive_workers.is_empty() {
 						FlipOrFlop::<T>::set(FlipFlopStage::Flip);
 						writes += 1;
@@ -240,16 +244,18 @@ pub(crate) mod pallet {
 						writes += unresponsive_workers.len().saturating_mul(3) as u64;
 					}
 				},
-				_ => {}
+				_ => {},
 			}
 
 			if PendingOfflineWorkers::<T>::count() > 0 {
-				let pending_removing_workers =
-					PendingOfflineWorkers::<T>::iter_keys().take(T::MarkingOfflinePerBlockLimit::get() as usize).collect::<Vec<_>>();
+				let pending_removing_workers = PendingOfflineWorkers::<T>::iter_keys()
+					.take(T::MarkingOfflinePerBlockLimit::get() as usize)
+					.collect::<Vec<_>>();
 				assert!(pending_removing_workers.len() > 0); // it shouldn't be zero
 
 				for worker in &pending_removing_workers {
-					// Worker who is `RequestingOffline`, `RefreshRegistrationRequired` should answer heartbeat as is `Online`
+					// Worker who is `RequestingOffline`, `RefreshRegistrationRequired` should answer heartbeat as is
+					// `Online`
 					FlipSet::<T>::remove(worker);
 					FlopSet::<T>::remove(worker);
 					PendingOfflineWorkers::<T>::remove(worker);
@@ -287,11 +293,7 @@ pub(crate) mod pallet {
 		// TODO: #[pallet::weight(<T as Config>::WeightInfo::register())]
 		#[pallet::weight(0)]
 		#[transactional]
-		pub fn register(
-			origin: OriginFor<T>,
-			initial_deposit: BalanceOf<T>,
-			worker: T::AccountId
-		) -> DispatchResult {
+		pub fn register(origin: OriginFor<T>, initial_deposit: BalanceOf<T>, worker: T::AccountId) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 			Self::do_register(who, initial_deposit, worker)
 		}
@@ -318,36 +320,24 @@ pub(crate) mod pallet {
 		/// The same with balances.transfer_keep_alive(owner, worker, balance)
 		#[pallet::weight(0)]
 		#[transactional]
-		pub fn deposit(
-			origin: OriginFor<T>,
-			worker: T::AccountId,
-			value: BalanceOf<T>
-		) -> DispatchResult {
+		pub fn deposit(origin: OriginFor<T>, worker: T::AccountId, value: BalanceOf<T>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 			let worker_info = Workers::<T>::get(&worker).ok_or(Error::<T>::NotExists)?;
 			Self::ensure_owner(&who, &worker_info)?;
 
-			<T as Config>::Currency::transfer(
-				&who, &worker, value, ExistenceRequirement::KeepAlive
-			)?;
+			<T as Config>::Currency::transfer(&who, &worker, value, ExistenceRequirement::KeepAlive)?;
 			Ok(())
 		}
 
 		/// The same with balances.transfer_keep_alive(worker, owner, balance)
 		#[pallet::weight(0)]
 		#[transactional]
-		pub fn withdraw(
-			origin: OriginFor<T>,
-			worker: T::AccountId,
-			value: BalanceOf<T>,
-		) -> DispatchResult {
+		pub fn withdraw(origin: OriginFor<T>, worker: T::AccountId, value: BalanceOf<T>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 			let worker_info = Workers::<T>::get(&worker).ok_or(Error::<T>::NotExists)?;
 			Self::ensure_owner(&who, &worker_info)?;
 
-			<T as Config>::Currency::transfer(
-				&worker, &who, value, ExistenceRequirement::KeepAlive
-			)?;
+			<T as Config>::Currency::transfer(&worker, &who, value, ExistenceRequirement::KeepAlive)?;
 			Ok(())
 		}
 
@@ -390,11 +380,7 @@ pub(crate) mod pallet {
 }
 
 impl<T: Config> Pallet<T> {
-	fn do_register(
-		who: T::AccountId,
-		initial_deposit: BalanceOf<T>,
-		worker: T::AccountId,
-	) -> DispatchResult {
+	fn do_register(who: T::AccountId, initial_deposit: BalanceOf<T>, worker: T::AccountId) -> DispatchResult {
 		ensure!(who != worker, Error::<T>::InvalidOwner);
 
 		let initial_reserved_deposit = T::ReservedDeposit::get();
@@ -421,15 +407,11 @@ impl<T: Config> Pallet<T> {
 		Ok(())
 	}
 
-	fn do_deregister(
-		who: T::AccountId,
-		worker: T::AccountId
-	) -> DispatchResult {
+	fn do_deregister(who: T::AccountId, worker: T::AccountId) -> DispatchResult {
 		let worker_info = Workers::<T>::get(&worker).ok_or(Error::<T>::NotExists)?;
 		Self::ensure_owner(&who, &worker_info)?;
 		ensure!(
-			worker_info.status == WorkerStatus::Offline ||
-			worker_info.status == WorkerStatus::Registered,
+			worker_info.status == WorkerStatus::Offline || worker_info.status == WorkerStatus::Registered,
 			Error::<T>::NotOffline
 		);
 
@@ -448,18 +430,14 @@ impl<T: Config> Pallet<T> {
 		Ok(())
 	}
 
-	pub fn do_online(
-		who: T::AccountId,
-		payload: OnlinePayload,
-		attestation: Option<Attestation>,
-	) -> DispatchResult {
+	pub fn do_online(who: T::AccountId, payload: OnlinePayload, attestation: Option<Attestation>) -> DispatchResult {
 		let mut worker_info = Workers::<T>::get(&who).ok_or(Error::<T>::NotExists)?;
 		Self::ensure_worker(&who, &worker_info)?;
 
 		ensure!(
 			worker_info.status == WorkerStatus::Registered ||
-			worker_info.status == WorkerStatus::Offline ||
-			worker_info.status == WorkerStatus::Unresponsive,
+				worker_info.status == WorkerStatus::Offline ||
+				worker_info.status == WorkerStatus::Unresponsive,
 			Error::<T>::WrongStatus
 		);
 
@@ -480,8 +458,7 @@ impl<T: Config> Pallet<T> {
 
 			let encoded_message = Encode::encode(&payload);
 
-			if let Some(signature) =
-				sr25519::Signature::from_slice(verified.payload()) {
+			if let Some(signature) = sr25519::Signature::from_slice(verified.payload()) {
 				if !sr25519_verify(&signature, &encoded_message, &worker_public_key) {
 					return Err(Error::<T>::MismatchedPayloadSignature.into())
 				}
@@ -518,10 +495,7 @@ impl<T: Config> Pallet<T> {
 			return Ok(())
 		}
 
-		ensure!(
-			worker_info.spec_version == payload.spec_version,
-			Error::<T>::SoftwareChanged
-		);
+		ensure!(worker_info.spec_version == payload.spec_version, Error::<T>::SoftwareChanged);
 
 		Self::ensure_attestation_method(&attestation, &worker_info)?;
 
@@ -534,8 +508,7 @@ impl<T: Config> Pallet<T> {
 
 			let encoded_message = Encode::encode(&payload);
 
-			if let Some(signature) =
-				sr25519::Signature::from_slice(verified.payload()) {
+			if let Some(signature) = sr25519::Signature::from_slice(verified.payload()) {
 				if !sr25519_verify(&signature, &encoded_message, &worker_public_key) {
 					return Err(Error::<T>::MismatchedPayloadSignature.into())
 				}
@@ -555,10 +528,7 @@ impl<T: Config> Pallet<T> {
 		let mut worker_info = Workers::<T>::get(&who).ok_or(Error::<T>::NotExists)?;
 		Self::ensure_worker(&who, &worker_info)?;
 
-		ensure!(
-			worker_info.status == WorkerStatus::Online,
-			Error::<T>::NotOnline
-		);
+		ensure!(worker_info.status == WorkerStatus::Online, Error::<T>::NotOnline);
 
 		// The fast path, the worker can safely offline if no workload
 		worker_info.status = WorkerStatus::Offline;
@@ -586,10 +556,10 @@ impl<T: Config> Pallet<T> {
 
 		ensure!(
 			worker_info.status == WorkerStatus::Online ||
-			worker_info.status == WorkerStatus::RefreshAttestationRequired ||
-			worker_info.status == WorkerStatus::RequestingOffline ||
-			worker_info.status == WorkerStatus::RequestingOffline ||
-			worker_info.status == WorkerStatus::Unresponsive,
+				worker_info.status == WorkerStatus::RefreshAttestationRequired ||
+				worker_info.status == WorkerStatus::RequestingOffline ||
+				worker_info.status == WorkerStatus::RequestingOffline ||
+				worker_info.status == WorkerStatus::Unresponsive,
 			Error::<T>::WrongStatus
 		);
 
@@ -611,8 +581,8 @@ impl<T: Config> Pallet<T> {
 		Self::ensure_worker(&who, &worker_info)?;
 		ensure!(
 			worker_info.status == WorkerStatus::Online ||
-			worker_info.status == WorkerStatus::RequestingOffline ||
-			worker_info.status == WorkerStatus::RefreshAttestationRequired,
+				worker_info.status == WorkerStatus::RequestingOffline ||
+				worker_info.status == WorkerStatus::RefreshAttestationRequired,
 			Error::<T>::NotOnline
 		);
 
@@ -636,7 +606,7 @@ impl<T: Config> Pallet<T> {
 	fn flipflop(who: &T::AccountId) -> DispatchResult {
 		let stage = FlipOrFlop::<T>::get();
 		match stage {
-			FlipFlopStage::Flip => {
+			FlipFlopStage::Flip =>
 				if let Some(_flip) = FlipSet::<T>::take(who) {
 					FlopSet::<T>::insert(who, ());
 
@@ -644,9 +614,8 @@ impl<T: Config> Pallet<T> {
 					Ok(())
 				} else {
 					Err(Error::<T>::AlreadySentHeartbeat.into())
-				}
-			},
-			FlipFlopStage::Flop => {
+				},
+			FlipFlopStage::Flop =>
 				if let Some(_flop) = FlopSet::<T>::take(who) {
 					FlipSet::<T>::insert(who, ());
 
@@ -654,11 +623,8 @@ impl<T: Config> Pallet<T> {
 					Ok(())
 				} else {
 					Err(Error::<T>::AlreadySentHeartbeat.into())
-				}
-			},
-			_ => {
-				Err(Error::<T>::Intermission.into())
-			}
+				},
+			_ => Err(Error::<T>::Intermission.into()),
 		}
 	}
 
@@ -676,26 +642,18 @@ impl<T: Config> Pallet<T> {
 			},
 			FlipFlopStage::FlopToFlip => {
 				FlopSet::<T>::insert(who, ());
-			}
+			},
 		}
 	}
 
 	fn verify_attestation(attestation: &Attestation) -> Result<VerifiedAttestation, DispatchError> {
-		let verify_material = AttestationVerifyMaterial {
-			now: T::UnixTime::now().as_millis().saturated_into::<u64>(),
-		};
+		let verify_material = AttestationVerifyMaterial { now: T::UnixTime::now().as_millis().saturated_into::<u64>() };
 
 		let verified = attestation.verify(&verify_material);
 		return match verified {
-			Ok(verified) => {
-				Ok(verified)
-			},
-			Err(AttestationError::Expired) => {
-				Err(Error::<T>::ExpiredAttestation.into())
-			},
-			Err(AttestationError::Invalid) => {
-				Err(Error::<T>::InvalidAttestation.into())
-			}
+			Ok(verified) => Ok(verified),
+			Err(AttestationError::Expired) => Err(Error::<T>::ExpiredAttestation.into()),
+			Err(AttestationError::Invalid) => Err(Error::<T>::InvalidAttestation.into()),
 		}
 	}
 

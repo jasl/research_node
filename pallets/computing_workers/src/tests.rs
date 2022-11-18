@@ -21,9 +21,7 @@ fn register_worker_for(
 ) -> WorkerInfo<AccountId, Balance, BlockNumber> {
 	let owner_balance = Balances::free_balance(owner);
 
-	assert_ok!(
-		ComputingWorkers::register(RuntimeOrigin::signed(owner), initial_deposit, worker)
-	);
+	assert_ok!(ComputingWorkers::register(RuntimeOrigin::signed(owner), initial_deposit, worker));
 
 	let worker_info = ComputingWorkers::workers(worker).unwrap();
 
@@ -46,16 +44,12 @@ fn register_works() {
 		set_balance(ALICE, 101 * DOLLARS, 0);
 
 		assert_noop!(
-			ComputingWorkers::register(
-				RuntimeOrigin::signed(ALICE), 10 * DOLLARS, ALICE_WORKER,
-			),
+			ComputingWorkers::register(RuntimeOrigin::signed(ALICE), 10 * DOLLARS, ALICE_WORKER,),
 			Error::<Test>::InitialDepositTooLow
 		);
 
 		assert_noop!(
-			ComputingWorkers::register(
-				RuntimeOrigin::signed(ALICE), 100 * DOLLARS, ALICE_WORKER
-			),
+			ComputingWorkers::register(RuntimeOrigin::signed(ALICE), 100 * DOLLARS, ALICE_WORKER),
 			Error::<Test>::AlreadyRegistered
 		);
 	});

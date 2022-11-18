@@ -66,7 +66,7 @@ impl Attestation {
 
 	pub(self) fn payload(&self) -> &[u8] {
 		match self {
-			Attestation::NonTEE(material) => material.payload.as_slice()
+			Attestation::NonTEE(material) => material.payload.as_slice(),
 		}
 	}
 }
@@ -85,7 +85,7 @@ impl VerifiedAttestation<'_> {
 
 fn verify_non_tee_attestation(
 	material: &NonTEEAttestationMaterial,
-	verify_material: &AttestationVerifyMaterial
+	verify_material: &AttestationVerifyMaterial,
 ) -> Result<(), AttestationError> {
 	let period = verify_material.now - material.issued_at;
 	if period > ATTESTATION_MATERIAL_ISSUED_PERIOD_OF_VALIDITY {
