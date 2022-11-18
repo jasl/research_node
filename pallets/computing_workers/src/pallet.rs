@@ -315,6 +315,42 @@ pub(crate) mod pallet {
 			Self::do_deregister(who, worker)
 		}
 
+		/// The same with balances.transfer_keep_alive(owner, worker, balance)
+		#[pallet::weight(0)]
+		#[transactional]
+		pub fn deposit(
+			origin: OriginFor<T>,
+			worker: T::AccountId,
+			value: BalanceOf<T>
+		) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+			let worker_info = Workers::<T>::get(&worker).ok_or(Error::<T>::NotExists)?;
+			Self::ensure_owner(&who, &worker_info)?;
+
+			<T as Config>::Currency::transfer(
+				&who, &worker, value, ExistenceRequirement::KeepAlive
+			)?;
+			Ok(())
+		}
+
+		/// The same with balances.transfer_keep_alive(worker, owner, balance)
+		#[pallet::weight(0)]
+		#[transactional]
+		pub fn withdraw(
+			origin: OriginFor<T>,
+			worker: T::AccountId,
+			value: BalanceOf<T>,
+		) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+			let worker_info = Workers::<T>::get(&worker).ok_or(Error::<T>::NotExists)?;
+			Self::ensure_owner(&who, &worker_info)?;
+
+			<T as Config>::Currency::transfer(
+				&worker, &who, value, ExistenceRequirement::KeepAlive
+			)?;
+			Ok(())
+		}
+
 		/// The worker claim for online
 		#[pallet::weight(0)]
 		#[transactional]

@@ -526,8 +526,8 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
 
     if (window.ownerKeyPair !== null) {
       const deposit = numberToBalance(workerBalanceThreshold);
-      logger.info(`Sending "balances.transferKeepAlive('${window.workerKeyPair.address}', '${deposit}')"`);
-      const txPromise = api.tx.balances.transferKeepAlive(window.workerKeyPair.address, deposit);
+      logger.info(`Sending "computingWorkers.deposit('${window.workerKeyPair.address}', '${deposit}')"`);
+      const txPromise = api.tx.computingWorkers.deposit(window.workerKeyPair.address, deposit);
       logger.debug(`Call hash: ${txPromise.toHex()}`);
       const txHash = await txPromise.signAndSend(window.ownerKeyPair, { nonce: -1 });
       logger.info(`Transaction hash: ${txHash.toHex()}`);
