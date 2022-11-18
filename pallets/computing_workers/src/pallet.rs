@@ -15,6 +15,7 @@ use sp_runtime::{
 };
 use sp_core::{H256, sr25519};
 use sp_io::crypto::sr25519_verify;
+use sp_std::prelude::*;
 use crate::types::{
 	Attestation, AttestationMethod, AttestationVerifyMaterial, VerifiedAttestation,
 	FlipFlopStage, OnlinePayload, WorkerInfo, WorkerStatus, AttestationError};
@@ -183,9 +184,68 @@ pub(crate) mod pallet {
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		fn on_initialize(n: T::BlockNumber) -> Weight {
-			// TODO: Check flipflop, mark unresponsive and move to PendingOfflineWorkers
+			let mut reads: u64 = 1;
+			let mut writes: u64 = 0;
+
+			let mut flip_or_flop = FlipOrFlop::<T>::get();
+			if (n % T::CollectingHeartbeatsDuration::get().into()).is_zero() {
+				match flip_or_flop {
+					FlipFlopStage::Flip => {
+						flip_or_flop = FlipFlopStage::FlipToFlop;
+						FlipOrFlop::<T>::set(flip_or_flop);
+						writes += 1;
+					}
+					FlipFlopStage::Flop => {
+						flip_or_flop = FlipFlopStage::FlopToFlip;
+						FlipOrFlop::<T>::set(flip_or_flop);
+						writes += 1;
+					},
+					_ => {}
+				}
+			}
+			match flip_or_flop {
+				FlipFlopStage::FlipToFlop => {
+					let unresponsive_workers =
+						FlipSet::<T>::iter_keys().take(T::MarkingUnresponsivePerBlockLimit::get() as usize).collect::<Vec<_>>();
+					if unresponsive_workers.is_empty() {
+						FlipOrFlop::<T>::set(FlipFlopStage::Flop);
+						writes += 1;
+					} else {
+						for worker in &unresponsive_workers {
+							FlipSet::<T>::remove(worker);
+							PendingOfflineWorkers::<T>::insert(worker, ());
+							Workers::<T>::mutate(worker, |worker_info| {
+								worker_info.as_mut().map(|mut info| info.status = WorkerStatus::Unresponsive);
+							});
+						}
+						reads += unresponsive_workers.len() as u64;
+						writes += unresponsive_workers.len().saturating_mul(3) as u64;
+					}
+				}
+				FlipFlopStage::FlopToFlip => {
+					let unresponsive_workers =
+						FlopSet::<T>::iter_keys().take(T::MarkingUnresponsivePerBlockLimit::get() as usize).collect::<Vec<_>>();
+					if unresponsive_workers.is_empty() {
+						FlipOrFlop::<T>::set(FlipFlopStage::Flip);
+						writes += 1;
+					} else {
+						for worker in &unresponsive_workers {
+							FlopSet::<T>::remove(worker);
+							PendingOfflineWorkers::<T>::insert(worker, ());
+							Workers::<T>::mutate(worker, |worker_info| {
+								worker_info.as_mut().map(|mut info| info.status = WorkerStatus::Unresponsive);
+							});
+						}
+						reads += unresponsive_workers.len().saturating_mul(2) as u64;
+						writes += unresponsive_workers.len().saturating_mul(3) as u64;
+					}
+				},
+				_ => {}
+			}
+
 			// TODO: Clean up PendingOfflineWorkers, offline them
-			T::DbWeight::get().reads(1)
+
+			T::DbWeight::get().reads_writes(reads, writes)
 		}
 	}
 
@@ -497,13 +557,14 @@ impl<T: Config> Pallet<T> {
 		ensure!(
 			worker_info.status == WorkerStatus::Online ||
 			worker_info.status == WorkerStatus::RequestingOffline ||
-			worker_info.status == WorkerStatus::RefreshRegistrationRequired, Error::<T>::NotOnline);
+			worker_info.status == WorkerStatus::RefreshRegistrationRequired,
+			Error::<T>::NotOnline
+		);
 
 		Self::flipflop(who)?;
 
 		Self::deposit_event(Event::<T>::HeartbeatReceived { worker: who.clone() });
 
-		// TODO: Check attestation expires, mark to `RefreshRegistrationRequired` and move to PendingOfflineWorkers
 		let current_block = frame_system::Pallet::<T>::block_number();
 		if current_block - worker_info.attested_at > T::AttestationValidityDuration::get().into() {
 			worker_info.status = WorkerStatus::RefreshRegistrationRequired;

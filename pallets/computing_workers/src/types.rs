@@ -101,7 +101,7 @@ pub struct OnlinePayload {
 }
 
 /// Worker's status
-#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+#[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 pub enum WorkerStatus {
 	/// Initial status for a new registered worker.
 	Registered,
@@ -163,7 +163,7 @@ pub struct WorkerInfo<Account, Balance, BlockNumber> {
 	pub attested_at: BlockNumber,
 }
 
-#[derive(Encode, Decode, MaxEncodedLen, TypeInfo, RuntimeDebug, Clone, PartialEq, Eq)]
+#[derive(Encode, Decode, MaxEncodedLen, TypeInfo, RuntimeDebug, Copy, Clone, PartialEq, Eq)]
 pub enum FlipFlopStage {
 	Flip,
 	Flop,

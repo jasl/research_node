@@ -454,7 +454,7 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
     return;
   }
 
-  if (workerInfo.status === WorkerStatus.Online || workerInfo.status === WorkerStatus.RefreshRegistrationRequired) {
+  if (window.refreshAttestationInterval > 0) {
     if (window.locals.sentRefreshAttestationAt === undefined && latestBlockNumber > window.attestedAt + window.refreshAttestationInterval) {
       const payload = api.createType("OnlinePayload", {
         "spec_version": SPEC_VERSION,
