@@ -184,7 +184,7 @@ pub(crate) mod pallet {
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		fn on_initialize(n: T::BlockNumber) -> Weight {
-			let mut reads: u64 = 1;
+			let mut reads: u64 = 2; // read FlipOrFlop & read PendingOfflineWorkers
 			let mut writes: u64 = 0;
 
 			let mut flip_or_flop = FlipOrFlop::<T>::get();
@@ -244,6 +244,24 @@ pub(crate) mod pallet {
 			}
 
 			// TODO: Clean up PendingOfflineWorkers, offline them
+			if PendingOfflineWorkers::<T>::count() > 0 {
+				let pending_removing_workers =
+					PendingOfflineWorkers::<T>::iter_keys().take(T::MarkingOfflinePerBlockLimit::get() as usize).collect::<Vec<_>>();
+				assert!(pending_removing_workers.len() > 0); // it shouldn't be zero
+
+				for worker in &pending_removing_workers {
+					// Worker who is `RequestingOffline`, `RefreshRegistrationRequired` should answer heartbeat as is `Online`
+					FlipSet::<T>::remove(worker);
+					FlopSet::<T>::remove(worker);
+					PendingOfflineWorkers::<T>::remove(worker);
+
+					Workers::<T>::mutate(worker, |worker_info| {
+						worker_info.as_mut().map(|mut info| info.status = WorkerStatus::Offline);
+					});
+				}
+				reads += pending_removing_workers.len().saturating_mul(3) as u64;
+				writes += pending_removing_workers.len().saturating_mul(3) as u64;
+			}
 
 			T::DbWeight::get().reads_writes(reads, writes)
 		}
