@@ -98,6 +98,8 @@ pub(crate) mod pallet {
 		Online { worker: T::AccountId },
 		/// The worker is requesting offline
 		RequestingOffline { worker: T::AccountId },
+		/// The worker unresponsive
+		Unresponsive { worker: T::AccountId },
 		/// The worker is offline
 		Offline { worker: T::AccountId, force: bool, slashed: bool },
 		/// The worker send heartbeat successfully
@@ -220,6 +222,8 @@ pub(crate) mod pallet {
 							Workers::<T>::mutate(worker, |worker_info| {
 								worker_info.as_mut().map(|mut info| info.status = WorkerStatus::Unresponsive);
 							});
+
+							Self::deposit_event(Event::<T>::Unresponsive { worker: worker.clone() });
 						}
 						reads += unresponsive_workers.len() as u64;
 						writes += unresponsive_workers.len().saturating_mul(3) as u64;
@@ -239,6 +243,8 @@ pub(crate) mod pallet {
 							Workers::<T>::mutate(worker, |worker_info| {
 								worker_info.as_mut().map(|mut info| info.status = WorkerStatus::Unresponsive);
 							});
+
+							Self::deposit_event(Event::<T>::Unresponsive { worker: worker.clone() });
 						}
 						reads += unresponsive_workers.len().saturating_mul(2) as u64;
 						writes += unresponsive_workers.len().saturating_mul(3) as u64;
