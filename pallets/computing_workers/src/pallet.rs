@@ -243,7 +243,6 @@ pub(crate) mod pallet {
 				_ => {}
 			}
 
-			// TODO: Clean up PendingOfflineWorkers, offline them
 			if PendingOfflineWorkers::<T>::count() > 0 {
 				let pending_removing_workers =
 					PendingOfflineWorkers::<T>::iter_keys().take(T::MarkingOfflinePerBlockLimit::get() as usize).collect::<Vec<_>>();
