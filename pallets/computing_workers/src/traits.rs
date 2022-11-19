@@ -1,5 +1,5 @@
-use frame_support::dispatch::DispatchResult;
 use crate::types::WorkerInfo;
+use frame_support::dispatch::DispatchResult;
 
 pub trait WorkerManageable<AccountId, Balance, BlockNumber> {
 	// PUBLIC IMMUTABLES
@@ -16,7 +16,6 @@ pub trait WorkerManageable<AccountId, Balance, BlockNumber> {
 	/// then a non-zero second item will be returned.
 	fn slash(who: &AccountId, value: Balance) -> DispatchResult;
 }
-
 
 #[cfg(feature = "std")]
 impl<AccountId, Balance, BlockNumber> WorkerManageable<AccountId, Balance, BlockNumber> for () {

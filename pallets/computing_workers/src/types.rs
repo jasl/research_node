@@ -12,12 +12,6 @@ pub const MAX_ATTESTATION_PAYLOAD_SIZE: u32 = 64 * 1000; // limit to 64KB
 
 pub type AttestationPayload = BoundedVec<u8, ConstU32<MAX_ATTESTATION_PAYLOAD_SIZE>>;
 
-#[derive(Clone, PartialEq, RuntimeDebug)]
-pub struct AttestationVerifyMaterial {
-	pub now: u64,
-	// TODO: more fields, e.g. implementations allow list
-}
-
 #[derive(Encode, Decode, Clone, PartialEq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 pub struct NonTEEAttestationMaterial {
 	pub issued_at: u64,
@@ -53,14 +47,10 @@ impl Attestation {
 		}
 	}
 
-	pub fn verify(&self, verify_material: &AttestationVerifyMaterial) -> Result<VerifiedAttestation, AttestationError> {
+	pub fn verify(&self, now: u64) -> Result<VerifiedAttestation, AttestationError> {
 		match self {
 			Attestation::NonTEE(material) =>
-				if let Err(error) = verify_non_tee_attestation(material, verify_material) {
-					Err(error)
-				} else {
-					Ok(VerifiedAttestation(self))
-				},
+				verify_non_tee_attestation(material, now).map(|_| Ok(VerifiedAttestation(self)))?,
 		}
 	}
 
@@ -83,11 +73,8 @@ impl VerifiedAttestation<'_> {
 	}
 }
 
-fn verify_non_tee_attestation(
-	material: &NonTEEAttestationMaterial,
-	verify_material: &AttestationVerifyMaterial,
-) -> Result<(), AttestationError> {
-	let period = verify_material.now - material.issued_at;
+fn verify_non_tee_attestation(material: &NonTEEAttestationMaterial, now: u64) -> Result<(), AttestationError> {
+	let period = now - material.issued_at;
 	if period > ATTESTATION_MATERIAL_ISSUED_PERIOD_OF_VALIDITY {
 		Err(AttestationError::Expired)
 	} else {
