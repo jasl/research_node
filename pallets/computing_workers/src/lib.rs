@@ -482,17 +482,16 @@ impl<T: Config> Pallet<T> {
 	pub fn do_online(who: T::AccountId, payload: OnlinePayload, attestation: Option<Attestation>) -> DispatchResult {
 		let mut worker_info = Workers::<T>::get(&who).ok_or(Error::<T>::NotExists)?;
 		Self::ensure_worker(&who, &worker_info)?;
-
 		ensure!(
 			worker_info.status == WorkerStatus::Registered ||
 				worker_info.status == WorkerStatus::Offline ||
 				worker_info.status == WorkerStatus::Unresponsive,
 			Error::<T>::WrongStatus
 		);
-
-		if worker_info.spec_version > payload.spec_version {
-			return Err(Error::<T>::CanNotDowngrade.into())
-		}
+		ensure!(
+			worker_info.spec_version <= payload.spec_version,
+			Error::<T>::CanNotDowngrade
+		);
 
 		Self::ensure_attestation_provided(&attestation)?;
 
@@ -507,13 +506,14 @@ impl<T: Config> Pallet<T> {
 
 			let encoded_message = Encode::encode(&payload);
 
-			if let Some(signature) = sr25519::Signature::from_slice(verified.payload()) {
-				if !sr25519_verify(&signature, &encoded_message, &worker_public_key) {
-					return Err(Error::<T>::MismatchedPayloadSignature.into())
-				}
-			} else {
+			let Some(signature) = sr25519::Signature::from_slice(verified.payload()) else {
 				return Err(Error::<T>::CanNotVerifyPayload.into())
-			}
+			};
+
+			ensure!(
+				sr25519_verify(&signature, &encoded_message, &worker_public_key),
+				Error::<T>::MismatchedPayloadSignature
+			);
 		}
 
 		if worker_info.status == WorkerStatus::Unresponsive {
@@ -557,13 +557,14 @@ impl<T: Config> Pallet<T> {
 
 			let encoded_message = Encode::encode(&payload);
 
-			if let Some(signature) = sr25519::Signature::from_slice(verified.payload()) {
-				if !sr25519_verify(&signature, &encoded_message, &worker_public_key) {
-					return Err(Error::<T>::MismatchedPayloadSignature.into())
-				}
-			} else {
+			let Some(signature) = sr25519::Signature::from_slice(verified.payload()) else {
 				return Err(Error::<T>::CanNotVerifyPayload.into())
-			}
+			};
+
+			ensure!(
+				sr25519_verify(&signature, &encoded_message, &worker_public_key),
+				Error::<T>::MismatchedPayloadSignature
+			);
 		}
 
 		worker_info.attested_at = frame_system::Pallet::<T>::block_number();
@@ -654,24 +655,26 @@ impl<T: Config> Pallet<T> {
 	fn flipflop(who: &T::AccountId) -> DispatchResult {
 		let stage = FlipOrFlop::<T>::get();
 		match stage {
-			FlipFlopStage::Flip =>
-				if let Some(_flip) = FlipSet::<T>::take(who) {
-					FlopSet::<T>::insert(who, ());
+			FlipFlopStage::Flip => {
+				let Some(_flip) = FlipSet::<T>::take(who) else {
+					return Err(Error::<T>::AlreadySentHeartbeat.into())
+				};
 
-					Self::deposit_event(Event::<T>::HeartbeatReceived { worker: who.clone() });
-					Ok(())
-				} else {
-					Err(Error::<T>::AlreadySentHeartbeat.into())
-				},
-			FlipFlopStage::Flop =>
-				if let Some(_flop) = FlopSet::<T>::take(who) {
-					FlipSet::<T>::insert(who, ());
+				FlopSet::<T>::insert(who, ());
 
-					Self::deposit_event(Event::<T>::HeartbeatReceived { worker: who.clone() });
-					Ok(())
-				} else {
-					Err(Error::<T>::AlreadySentHeartbeat.into())
-				},
+				Self::deposit_event(Event::<T>::HeartbeatReceived { worker: who.clone() });
+				Ok(())
+			},
+			FlipFlopStage::Flop => {
+				let Some(_flop) = FlopSet::<T>::take(who) else {
+					return Err(Error::<T>::AlreadySentHeartbeat.into());
+				};
+
+				FlipSet::<T>::insert(who, ());
+
+				Self::deposit_event(Event::<T>::HeartbeatReceived { worker: who.clone() });
+				Ok(())
+			},
 			_ => Err(Error::<T>::Intermission.into()),
 		}
 	}
@@ -736,12 +739,16 @@ impl<T: Config> Pallet<T> {
 	}
 
 	fn ensure_attestation_provided(attestation: &Option<Attestation>) -> DispatchResult {
-		if let Some(attestation) = attestation {
-			if attestation.method() == AttestationMethod::NonTEE {
-				ensure!(!T::DisallowNonTEEAttestation::get(), Error::<T>::DisallowNonTEEAttestation);
-			}
-		} else {
-			ensure!(!T::DisallowOptOutAttestation::get() || attestation.is_some(), Error::<T>::MustProvideAttestation);
+		let Some(attestation) = attestation else {
+			ensure!(
+				!T::DisallowOptOutAttestation::get() || attestation.is_some(),
+				Error::<T>::MustProvideAttestation
+			);
+			return Ok(())
+		};
+
+		if attestation.method() == AttestationMethod::NonTEE {
+			ensure!(!T::DisallowNonTEEAttestation::get(), Error::<T>::DisallowNonTEEAttestation);
 		}
 
 		Ok(())
@@ -751,15 +758,16 @@ impl<T: Config> Pallet<T> {
 		attestation: &Option<Attestation>,
 		worker_info: &WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>,
 	) -> DispatchResult {
-		if let Some(worker_attestation_method) = worker_info.clone().attestation_method {
-			if let Some(attestation) = attestation {
-				ensure!(attestation.method() == worker_attestation_method, Error::<T>::AttestationMethodChanged);
-			} else {
-				return Err(Error::<T>::AttestationMethodChanged.into())
-			}
-		} else {
-			ensure!(attestation.is_none(), Error::<T>::AttestationMethodChanged)
-		}
+		let Some(worker_attestation_method) = worker_info.attestation_method.clone() else {
+			ensure!(attestation.is_none(), Error::<T>::AttestationMethodChanged);
+			return Ok(())
+		};
+
+		let Some(attestation) = attestation else {
+			return Err(Error::<T>::AttestationMethodChanged.into())
+		};
+
+		ensure!(attestation.method() == worker_attestation_method, Error::<T>::AttestationMethodChanged);
 
 		Ok(())
 	}
