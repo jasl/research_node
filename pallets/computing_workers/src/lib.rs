@@ -608,8 +608,10 @@ impl<T: Config> Pallet<T> {
 			WorkerStatus::Online |
 			WorkerStatus::RefreshAttestationRequired |
 			WorkerStatus::RequestingOffline |
-			WorkerStatus::Unresponsive => return Err(Error::<T>::WrongStatus.into()),
-			_ => {},
+			WorkerStatus::Unresponsive => {},
+			_ => {
+				return Err(Error::<T>::WrongStatus.into())
+			},
 		}
 
 		worker_info.status = WorkerStatus::Offline;
@@ -628,12 +630,14 @@ impl<T: Config> Pallet<T> {
 	pub fn do_heartbeat(who: &T::AccountId) -> DispatchResult {
 		let mut worker_info = Workers::<T>::get(who).ok_or(Error::<T>::NotExists)?;
 		Self::ensure_worker(who, &worker_info)?;
-		ensure!(
-			worker_info.status == WorkerStatus::Online ||
-				worker_info.status == WorkerStatus::RequestingOffline ||
-				worker_info.status == WorkerStatus::RefreshAttestationRequired,
-			Error::<T>::NotOnline
-		);
+		match worker_info.status {
+			WorkerStatus::Online |
+			WorkerStatus::RequestingOffline |
+			WorkerStatus::RefreshAttestationRequired => {},
+			_ => {
+				return Err(Error::<T>::NotOnline.into())
+			}
+		}
 
 		Self::flipflop(who)?;
 

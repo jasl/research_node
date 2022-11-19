@@ -110,12 +110,12 @@ pub enum WorkerStatus {
 	Online,
 	/// The worker is offline so it can't accept job.
 	/// Transit from `RequestingOffline`, `RefreshRegistrationRequired` when job queue cleared,
-	/// and `Unresponsive` (when slashing)
+	/// and `Unresponsive` (will be slashed), `Online` (when force)
 	Offline,
 	/// The worker is pending to deregister,
 	/// It is safe to be deregistered if the worker is `Offline`,
 	/// so this is a placeholder for delayed cleaning.
-	/// Transit from `Offline` and `RefreshRegistrationRequired` and `Registered`
+	/// Transit from `Offline` and `Registered`
 	Deregistering,
 }
 
