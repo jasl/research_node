@@ -566,20 +566,36 @@ impl<T: Config> Pallet<T> {
 
 	/// Transit worker to `Offline` status
 	pub fn do_requesting_offline(who: T::AccountId) -> DispatchResult {
-		let mut worker_info = Workers::<T>::get(&who).ok_or(Error::<T>::NotExists)?;
+		let worker_info = Workers::<T>::get(&who).ok_or(Error::<T>::NotExists)?;
 		Self::ensure_worker(&who, &worker_info)?;
 
 		ensure!(worker_info.status == WorkerStatus::Online, Error::<T>::NotOnline);
 
-		worker_info.status = WorkerStatus::RequestingOffline;
-		Workers::<T>::insert(&who, worker_info);
+		if T::WorkerLifecycleHooks::can_offline(&who).is_ok() {
+			// Fast path
+			T::WorkerLifecycleHooks::before_offline(&who, false);
 
-		// TODO:
-		// It should keep sending heartbeat until really offline
+			FlipSet::<T>::remove(&who);
+			FlopSet::<T>::remove(&who);
+			Workers::<T>::mutate(&who, |worker_info| {
+				if let Some(mut info) = worker_info.as_mut() {
+					info.status = WorkerStatus::Offline;
+				}
+			});
 
-		Self::deposit_event(Event::<T>::RequestingOffline { worker: who.clone() });
+			Self::deposit_event(Event::<T>::Offline { worker: who, force: false });
+		} else {
+			// the worker should keep sending heartbeat until get permission to offline
+			Workers::<T>::mutate(&who, |worker_info| {
+				if let Some(mut info) = worker_info.as_mut() {
+					info.status = WorkerStatus::RequestingOffline;
+				}
+			});
 
-		T::WorkerLifecycleHooks::after_requesting_offline(&who);
+			Self::deposit_event(Event::<T>::RequestingOffline { worker: who.clone() });
+
+			T::WorkerLifecycleHooks::after_requesting_offline(&who);
+		}
 
 		Ok(())
 	}
