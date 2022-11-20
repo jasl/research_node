@@ -9,6 +9,7 @@ use sp_std::prelude::*;
 
 pub const ATTESTATION_MATERIAL_ISSUED_PERIOD_OF_VALIDITY: u64 = 60 * 60 * 1000; // 1 hour
 pub const MAX_ATTESTATION_PAYLOAD_SIZE: u32 = 64 * 1000; // limit to 64KB
+pub const MAX_CUSTOM_PAYLOAD_SIZE: u32 = 64 * 1000; // limit to 64KB
 
 pub type AttestationPayload = BoundedVec<u8, ConstU32<MAX_ATTESTATION_PAYLOAD_SIZE>>;
 
@@ -85,6 +86,7 @@ fn verify_non_tee_attestation(material: &NonTEEAttestationMaterial, now: u64) ->
 #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 pub struct OnlinePayload {
 	pub spec_version: u32,
+	pub extra: BoundedVec<u8, ConstU32<MAX_CUSTOM_PAYLOAD_SIZE>>,
 }
 
 /// Worker's status
@@ -112,11 +114,6 @@ pub enum WorkerStatus {
 	/// Transit from `RequestingOffline`, `RefreshRegistrationRequired` when job queue cleared,
 	/// and `Unresponsive` (will be slashed), `Online` (when force)
 	Offline,
-	/// The worker is pending to deregister,
-	/// It is safe to be deregistered if the worker is `Offline`,
-	/// so this is a placeholder for delayed cleaning.
-	/// Transit from `Offline` and `Registered`
-	Deregistering,
 }
 
 impl Default for WorkerStatus {

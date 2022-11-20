@@ -195,9 +195,9 @@ function createSubstrateApi(rpcUrl: string): ApiPromise | null {
           "Registered",
           "AttestationExpired",
           "RequestingOffline",
+          "Unresponsive",
           "Online",
           "Offline",
-          "Deregistering",
         ],
       },
       WorkerInfo: {
@@ -229,7 +229,6 @@ enum WorkerStatus {
   Unresponsive = "Unresponsive",
   Online = "Online",
   Offline = "Offline",
-  Deregistering = "Deregistering",
 }
 
 enum FlipFlopStage {

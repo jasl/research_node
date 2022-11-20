@@ -1,4 +1,4 @@
-use crate::types::WorkerInfo;
+use crate::types::{OnlinePayload, WorkerInfo};
 use frame_support::dispatch::DispatchResult;
 
 /// Trait describing something that implements a hook for any operations to perform when a staker is
@@ -6,7 +6,7 @@ use frame_support::dispatch::DispatchResult;
 pub trait WorkerLifecycleHooks<AccountId, Balance> {
 	/// A hook for checking the worker whether can online,
 	/// can use for add extra conditions check, if returns error, the worker will not be online
-	fn can_online(worker: &AccountId) -> DispatchResult;
+	fn can_online(worker: &AccountId, payload: &OnlinePayload) -> DispatchResult;
 	/// A hook after the worker transited to online status,
 	/// can use for add additional business logic, e.g. assign job, reserve more money
 	fn after_online(worker: &AccountId);
@@ -19,6 +19,10 @@ pub trait WorkerLifecycleHooks<AccountId, Balance> {
 	/// can use for add additional business logic, e.g. un-reserve money
 	/// when `force` is true, means it is the user force to do this
 	fn before_offline(worker: &AccountId, force: bool);
+
+	/// A hook after the worker update its attestation,
+	/// Can use for if interest in payload's custom field
+	fn after_refresh_attestation(worker: &AccountId, payload: &OnlinePayload);
 
 	/// A hook after the worker transited to unresponsive status,
 	/// can use for add additional business logic, e.g. stop assigning job, do slash
@@ -38,7 +42,7 @@ pub trait WorkerLifecycleHooks<AccountId, Balance> {
 }
 
 impl<AccountId, Balance> WorkerLifecycleHooks<AccountId, Balance> for () {
-	fn can_online(_: &AccountId) -> DispatchResult {
+	fn can_online(_: &AccountId, _: &OnlinePayload) -> DispatchResult {
 		Ok(())
 	}
 
@@ -51,6 +55,10 @@ impl<AccountId, Balance> WorkerLifecycleHooks<AccountId, Balance> for () {
 	}
 
 	fn before_offline(_: &AccountId, _: bool) {
+		// Do nothing
+	}
+
+	fn after_refresh_attestation(_: &AccountId, _: &OnlinePayload) {
 		// Do nothing
 	}
 

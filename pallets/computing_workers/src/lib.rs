@@ -46,6 +46,7 @@ use sp_core::{sr25519, H256};
 use sp_io::crypto::sr25519_verify;
 use sp_runtime::{traits::{StaticLookup, Zero}, SaturatedConversion, Saturating};
 use sp_std::prelude::*;
+use crate::traits::WorkerManageable;
 
 type AccountIdLookupOf<T> = <<T as frame_system::Config>::Lookup as StaticLookup>::Source;
 type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
@@ -533,15 +534,28 @@ impl<T: Config> Pallet<T> {
 		Ok(())
 	}
 
+	/// Transit a worker to `Online` status
+	/// Check following things
+	/// 1 Get the worker info by the caller
+	/// 2 Check the worker's status (Must be `Registered`, and `Offline`)
+	/// 3 Check the payload
+	/// 4 Check the reserved (will try complement from free)
+	/// 5 Check the attestation (the payload's signature is inside as payload)
+	/// 6 Do `can_online` hook, will pass the payload
+	/// Then
+	/// 1 If the worker's current status is `Unresponsive`, remove it from `PendingOfflineWorkers`
+	/// 2 Update worker's info, persists to storage
+	/// 3 Set flipflop
 	pub fn do_online(who: T::AccountId, payload: OnlinePayload, attestation: Option<Attestation>) -> DispatchResult {
 		let mut worker_info = Workers::<T>::get(&who).ok_or(Error::<T>::NotExists)?;
 		Self::ensure_worker(&who, &worker_info)?;
-		ensure!(
-			worker_info.status == WorkerStatus::Registered ||
-				worker_info.status == WorkerStatus::Offline ||
-				worker_info.status == WorkerStatus::Unresponsive,
-			Error::<T>::WrongStatus
-		);
+		match worker_info.status {
+			WorkerStatus::Registered |
+			WorkerStatus::Offline => {}
+			_ => {
+				return Err(Error::<T>::WrongStatus.into())
+			}
+		}
 		ensure!(
 			worker_info.spec_version <= payload.spec_version,
 			Error::<T>::CanNotDowngrade
@@ -583,7 +597,7 @@ impl<T: Config> Pallet<T> {
 			);
 		}
 
-		T::WorkerLifecycleHooks::can_online(&who)?;
+		T::WorkerLifecycleHooks::can_online(&who, &payload)?;
 
 		if worker_info.status == WorkerStatus::Unresponsive {
 			PendingOfflineWorkers::<T>::remove(&who);
@@ -593,6 +607,7 @@ impl<T: Config> Pallet<T> {
 		worker_info.attestation_method = attestation_method;
 		worker_info.attested_at = frame_system::Pallet::<T>::block_number();
 		worker_info.status = WorkerStatus::Online;
+
 		Workers::<T>::insert(&who, worker_info);
 
 		Self::flipflop_for_online(&who);
@@ -642,17 +657,20 @@ impl<T: Config> Pallet<T> {
 		worker_info.attested_at = frame_system::Pallet::<T>::block_number();
 		Workers::<T>::insert(&who, worker_info);
 
-		Self::deposit_event(Event::<T>::AttestationRefreshed { worker: who });
+		Self::deposit_event(Event::<T>::AttestationRefreshed { worker: who.clone() });
+
+		T::WorkerLifecycleHooks::after_refresh_attestation(&who, &payload);
+
 		Ok(())
 	}
 
+	/// Transit worker to `Offline` status
 	pub fn do_requesting_offline(who: T::AccountId) -> DispatchResult {
 		let mut worker_info = Workers::<T>::get(&who).ok_or(Error::<T>::NotExists)?;
 		Self::ensure_worker(&who, &worker_info)?;
 
 		ensure!(worker_info.status == WorkerStatus::Online, Error::<T>::NotOnline);
 
-		// TODO: enable this path when we have real workload
 		worker_info.status = WorkerStatus::RequestingOffline;
 		Workers::<T>::insert(&who, worker_info);
 
@@ -844,5 +862,15 @@ impl<T: Config> Pallet<T> {
 		ensure!(attestation.method() == worker_attestation_method, Error::<T>::AttestationMethodChanged);
 
 		Ok(())
+	}
+}
+
+impl<T: Config> WorkerManageable<T::AccountId, BalanceOf<T>, T::BlockNumber> for Pallet<T> {
+	fn worker_info(who: &T::AccountId) -> Option<WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>> {
+		Workers::<T>::get(who)
+	}
+
+	fn slash(who: &T::AccountId, value: BalanceOf<T>, force_offline: bool) {
+		todo!()
 	}
 }
