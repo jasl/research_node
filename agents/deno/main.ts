@@ -176,7 +176,7 @@ function createSubstrateApi(rpcUrl: string): ApiPromise | null {
         extra: "BoundedVec<u8, 64000>"
       },
       AttestationPayload: "BoundedVec<u8, 64000>",
-      NonTEEAttestationMaterial: {
+      NonTEEAttestation: {
         issued_at: "u64",
         payload: "AttestationPayload"
       },
@@ -188,7 +188,7 @@ function createSubstrateApi(rpcUrl: string): ApiPromise | null {
       },
       Attestation: {
         _enum: {
-          NonTEE: "NonTEEAttestationMaterial"
+          NonTEE: "NonTEEAttestation"
         },
       },
       WorkerStatus: {
@@ -213,11 +213,11 @@ function createSubstrateApi(rpcUrl: string): ApiPromise | null {
 }
 
 function createAttestation(api: ApiPromise, payload: any) {
-  const material = api.createType("NonTEEAttestationMaterial", {
+  const attestation = api.createType("NonTEEAttestation", {
     issued_at: Date.now(),
     payload: payload,
   });
-  return api.createType("Option<Attestation>", { "NonTEE": material })
+  return api.createType("Option<Attestation>", { "NonTEE": attestation })
 }
 
 enum WorkerStatus {

@@ -7,14 +7,14 @@ use frame_support::{
 use sp_runtime::RuntimeDebug;
 use sp_std::prelude::*;
 
-pub const ATTESTATION_MATERIAL_ISSUED_PERIOD_OF_VALIDITY: u64 = 60 * 60 * 1000; // 1 hour
+pub const ATTESTATION_ISSUED_PERIOD_OF_VALIDITY: u64 = 60 * 60 * 1000; // 1 hour
 pub const MAX_ATTESTATION_PAYLOAD_SIZE: u32 = 64 * 1000; // limit to 64KB
 pub const MAX_CUSTOM_PAYLOAD_SIZE: u32 = 64 * 1000; // limit to 64KB
 
 pub type AttestationPayload = BoundedVec<u8, ConstU32<MAX_ATTESTATION_PAYLOAD_SIZE>>;
 
 #[derive(Encode, Decode, Clone, PartialEq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
-pub struct NonTEEAttestationMaterial {
+pub struct NonTEEAttestation {
 	pub issued_at: u64,
 	pub payload: AttestationPayload,
 }
@@ -38,7 +38,7 @@ pub enum AttestationError {
 /// Worker's attestation
 #[derive(Encode, Decode, Clone, PartialEq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 pub enum Attestation {
-	NonTEE(NonTEEAttestationMaterial),
+	NonTEE(NonTEEAttestation),
 	// TODO: Intel SGX (EPID, ECDSA), AMD SEV, etc.
 }
 impl Attestation {
@@ -50,14 +50,14 @@ impl Attestation {
 
 	pub fn verify(&self, now: u64) -> Result<VerifiedAttestation, AttestationError> {
 		match self {
-			Attestation::NonTEE(material) =>
-				verify_non_tee_attestation(material, now).map(|_| Ok(VerifiedAttestation(self)))?,
+			Attestation::NonTEE(attestation) =>
+				verify_non_tee_attestation(attestation, now).map(|_| Ok(VerifiedAttestation(self)))?,
 		}
 	}
 
 	pub(self) fn payload(&self) -> &[u8] {
 		match self {
-			Attestation::NonTEE(material) => material.payload.as_slice(),
+			Attestation::NonTEE(attestation) => attestation.payload.as_slice(),
 		}
 	}
 }
@@ -74,9 +74,9 @@ impl VerifiedAttestation<'_> {
 	}
 }
 
-fn verify_non_tee_attestation(material: &NonTEEAttestationMaterial, now: u64) -> Result<(), AttestationError> {
-	let period = now - material.issued_at;
-	if period > ATTESTATION_MATERIAL_ISSUED_PERIOD_OF_VALIDITY {
+fn verify_non_tee_attestation(attestation: &NonTEEAttestation, now: u64) -> Result<(), AttestationError> {
+	let period = now - attestation.issued_at;
+	if period > ATTESTATION_ISSUED_PERIOD_OF_VALIDITY {
 		Err(AttestationError::Expired)
 	} else {
 		Ok(())
