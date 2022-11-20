@@ -28,9 +28,12 @@ macro_rules! log {
 
 pub use pallet::*;
 
-use crate::types::{
-	Attestation, AttestationError, AttestationMethod, FlipFlopStage, OnlinePayload, VerifiedAttestation, WorkerInfo,
-	WorkerStatus,
+use crate::{
+	types::{
+		Attestation, AttestationError, AttestationMethod, FlipFlopStage, OnlinePayload, VerifiedAttestation, WorkerInfo,
+		WorkerStatus,
+	},
+	traits::WorkerLifecycleHooks,
 };
 use frame_support::{
 	dispatch::{DispatchError, DispatchResult},
@@ -76,6 +79,9 @@ mod pallet {
 		/// Time used for verify attestation
 		type UnixTime: UnixTime;
 
+		/// A handler for manging worker slashing
+		type WorkerLifecycleHooks: WorkerLifecycleHooks<Self::AccountId, BalanceOf<Self>>;
+
 		/// Max number of clean up offline workers queue
 		#[pallet::constant]
 		type MarkingOfflinePerBlockLimit: Get<u32>;
@@ -111,6 +117,32 @@ mod pallet {
 		// TODO: type WeightInfo: WeightInfo;
 	}
 
+	/// Storage for computing_workers.
+	#[pallet::storage]
+	#[pallet::getter(fn workers)]
+	pub type Workers<T: Config> =
+		CountedStorageMap<_, Identity, T::AccountId, WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>>;
+
+	/// Storage for pending offline workers
+	#[pallet::storage]
+	#[pallet::getter(fn pending_offline_workers)]
+	pub type PendingOfflineWorkers<T: Config> = CountedStorageMap<_, Identity, T::AccountId, ()>;
+
+	/// Storage for flip set, this is for online checking
+	#[pallet::storage]
+	#[pallet::getter(fn flip_set)]
+	pub type FlipSet<T: Config> = CountedStorageMap<_, Identity, T::AccountId, ()>;
+
+	/// Storage for flop set, this is for online checking
+	#[pallet::storage]
+	#[pallet::getter(fn flop_set)]
+	pub type FlopSet<T: Config> = CountedStorageMap<_, Identity, T::AccountId, ()>;
+
+	/// Storage for stage of flip-flop, this is used for online checking
+	#[pallet::storage]
+	#[pallet::getter(fn flip_flop_stage)]
+	pub type FlipOrFlop<T> = StorageValue<_, FlipFlopStage, ValueQuery>;
+
 	// Pallets use events to inform users when important changes are made.
 	// https://docs.substrate.io/main-docs/build/events-errors/
 	#[pallet::event]
@@ -134,6 +166,8 @@ mod pallet {
 		AttestationRefreshed { worker: T::AccountId },
 		/// The work refresh attestation expired
 		AttestationExpired { worker: T::AccountId },
+		/// The worker got slashed
+		Slashed { worker: T::AccountId, amount: BalanceOf<T> }
 	}
 
 	// Errors inform users that something went wrong.
@@ -184,32 +218,6 @@ mod pallet {
 		/// AlreadySentHeartbeat
 		AlreadySentHeartbeat,
 	}
-
-	/// Storage for computing_workers.
-	#[pallet::storage]
-	#[pallet::getter(fn workers)]
-	pub type Workers<T: Config> =
-		CountedStorageMap<_, Identity, T::AccountId, WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>>;
-
-	/// Storage for pending offline workers
-	#[pallet::storage]
-	#[pallet::getter(fn pending_offline_workers)]
-	pub type PendingOfflineWorkers<T: Config> = CountedStorageMap<_, Identity, T::AccountId, ()>;
-
-	/// Storage for flip set, this is for online checking
-	#[pallet::storage]
-	#[pallet::getter(fn flip_set)]
-	pub type FlipSet<T: Config> = CountedStorageMap<_, Identity, T::AccountId, ()>;
-
-	/// Storage for flop set, this is for online checking
-	#[pallet::storage]
-	#[pallet::getter(fn flop_set)]
-	pub type FlopSet<T: Config> = CountedStorageMap<_, Identity, T::AccountId, ()>;
-
-	/// Storage for stage of flip-flop, this is used for online checking
-	#[pallet::storage]
-	#[pallet::getter(fn flip_flop_stage)]
-	pub type FlipOrFlop<T> = StorageValue<_, FlipFlopStage, ValueQuery>;
 
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
@@ -301,7 +309,9 @@ mod pallet {
 					FlopSet::<T>::remove(&worker);
 					PendingOfflineWorkers::<T>::remove(&worker);
 
-					// TODO: Apply slash
+					if let Some(_slash_amount) =  T::WorkerLifecycleHooks::settle_slash(&worker) {
+						// TODO: Apply slash
+					}
 
 					Workers::<T>::mutate(&worker, |worker_info| {
 						if let Some(mut info) = worker_info.as_mut() {
@@ -448,7 +458,9 @@ impl<T: Config> Pallet<T> {
 		};
 
 		<T as Config>::Currency::transfer(&who, &worker, initial_deposit, ExistenceRequirement::KeepAlive)?;
-		<T as Config>::Currency::reserve(&worker, initial_reserved_deposit)?;
+		if !initial_reserved_deposit.is_zero() {
+			<T as Config>::Currency::reserve(&worker, initial_reserved_deposit)?;
+		}
 
 		Workers::<T>::insert(&worker, worker_info);
 
@@ -465,7 +477,9 @@ impl<T: Config> Pallet<T> {
 		);
 
 		let reserved = worker_info.reserved;
-		<T as Config>::Currency::unreserve(&worker, reserved);
+		if !reserved.is_zero() {
+			<T as Config>::Currency::unreserve(&worker, reserved);
+		}
 		<T as Config>::Currency::transfer(
 			&worker,
 			&who,
@@ -492,6 +506,8 @@ impl<T: Config> Pallet<T> {
 			worker_info.spec_version <= payload.spec_version,
 			Error::<T>::CanNotDowngrade
 		);
+
+		// TODO: Check reserved money
 
 		Self::ensure_attestation_provided(&attestation)?;
 
@@ -606,7 +622,7 @@ impl<T: Config> Pallet<T> {
 
 		match worker_info.status {
 			WorkerStatus::Online |
-			WorkerStatus::RefreshAttestationRequired |
+			WorkerStatus::AttestationExpired |
 			WorkerStatus::RequestingOffline |
 			WorkerStatus::Unresponsive => {},
 			_ => {
@@ -633,7 +649,7 @@ impl<T: Config> Pallet<T> {
 		match worker_info.status {
 			WorkerStatus::Online |
 			WorkerStatus::RequestingOffline |
-			WorkerStatus::RefreshAttestationRequired => {},
+			WorkerStatus::AttestationExpired => {},
 			_ => {
 				return Err(Error::<T>::NotOnline.into())
 			}
@@ -645,7 +661,7 @@ impl<T: Config> Pallet<T> {
 
 		let current_block = frame_system::Pallet::<T>::block_number();
 		if current_block - worker_info.attested_at > T::AttestationValidityDuration::get().into() {
-			worker_info.status = WorkerStatus::RefreshAttestationRequired;
+			worker_info.status = WorkerStatus::AttestationExpired;
 			Workers::<T>::insert(who, worker_info);
 
 			PendingOfflineWorkers::<T>::insert(who, ());

@@ -193,7 +193,7 @@ function createSubstrateApi(rpcUrl: string): ApiPromise | null {
       WorkerStatus: {
         _enum: [
           "Registered",
-          "RefreshAttestationRequired",
+          "AttestationExpired",
           "RequestingOffline",
           "Online",
           "Offline",
@@ -224,7 +224,7 @@ function createAttestation(api: ApiPromise, payload: any) {
 enum WorkerStatus {
   Unregistered = "Unregistered",
   Registered = "Registered",
-  RefreshAttestationRequired = "RefreshAttestationRequired",
+  AttestationExpired = "AttestationExpired",
   RequestingOffline = "RequestingOffline",
   Unresponsive = "Unresponsive",
   Online = "Online",

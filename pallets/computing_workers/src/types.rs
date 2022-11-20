@@ -95,7 +95,7 @@ pub enum WorkerStatus {
 	/// The worker's attestation expired that need to do a refreshing,
 	/// the worker won't accept new job, accepted jobs will still processing.
 	/// Transit from `Online`
-	RefreshAttestationRequired,
+	AttestationExpired,
 	/// The worker is requesting offline,
 	/// the worker won't accept new job, accepted jobs will still processing,
 	/// when accepted jobs processed it can be transited to `Offline` safely without slashing.

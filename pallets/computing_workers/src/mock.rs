@@ -85,6 +85,7 @@ impl pallet_computing_workers::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;
 	type UnixTime = Timestamp;
+	type WorkerLifecycleHooks = ();
 	type MarkingOfflinePerBlockLimit = ConstU32<3>;
 	type MarkingUnresponsivePerBlockLimit = ConstU32<3>;
 	type ReservedDeposit = ConstU128<{ 100 * DOLLARS }>;

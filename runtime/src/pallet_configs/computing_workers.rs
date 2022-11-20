@@ -5,6 +5,7 @@ impl pallet_computing_workers::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;
 	type UnixTime = Timestamp;
+	type WorkerLifecycleHooks = ();
 	type MarkingOfflinePerBlockLimit = ConstU32<1000>;
 	type MarkingUnresponsivePerBlockLimit = ConstU32<1000>;
 	type ReservedDeposit = ConstU128<{ 100 * UNITS }>;
