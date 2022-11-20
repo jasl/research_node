@@ -33,7 +33,7 @@ use crate::{
 		Attestation, AttestationError, AttestationMethod, FlipFlopStage, OnlinePayload, VerifiedAttestation, WorkerInfo,
 		WorkerStatus,
 	},
-	traits::WorkerLifecycleHooks,
+	traits::{WorkerLifecycleHooks, WorkerManageable},
 };
 use frame_support::{
 	dispatch::{DispatchError, DispatchResult},
@@ -44,12 +44,16 @@ use frame_support::{
 use scale_codec::Encode;
 use sp_core::{sr25519, H256};
 use sp_io::crypto::sr25519_verify;
-use sp_runtime::{traits::{StaticLookup, Zero}, SaturatedConversion, Saturating};
+use sp_runtime::{traits::Zero, SaturatedConversion, Saturating};
 use sp_std::prelude::*;
-use crate::traits::WorkerManageable;
 
-type AccountIdLookupOf<T> = <<T as frame_system::Config>::Lookup as StaticLookup>::Source;
 type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+type PositiveImbalanceOf<T> = <<T as Config>::Currency as Currency<
+	<T as frame_system::Config>::AccountId,
+>>::PositiveImbalance;
+type NegativeImbalanceOf<T> = <<T as Config>::Currency as Currency<
+	<T as frame_system::Config>::AccountId,
+>>::NegativeImbalance;
 
 #[frame_support::pallet]
 mod pallet {
@@ -80,13 +84,9 @@ mod pallet {
 		/// A handler for manging worker slashing
 		type WorkerLifecycleHooks: WorkerLifecycleHooks<Self::AccountId, BalanceOf<Self>>;
 
-		/// Max number of clean up offline workers queue
-		#[pallet::constant]
-		type MarkingOfflinePerBlockLimit: Get<u32>;
-
 		/// Max number of moving unresponsive workers to pending offline workers queue
 		#[pallet::constant]
-		type MarkingUnresponsivePerBlockLimit: Get<u32>;
+		type HandleUnresponsivePerBlockLimit: Get<u32>;
 
 		/// The minimum amount required to keep a worker registration.
 		#[pallet::constant]
@@ -121,11 +121,6 @@ mod pallet {
 	pub type Workers<T: Config> =
 		CountedStorageMap<_, Identity, T::AccountId, WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>>;
 
-	/// Storage for pending offline workers
-	#[pallet::storage]
-	#[pallet::getter(fn pending_offline_workers)]
-	pub type PendingOfflineWorkers<T: Config> = CountedStorageMap<_, Identity, T::AccountId, ()>;
-
 	/// Storage for flip set, this is for online checking
 	#[pallet::storage]
 	#[pallet::getter(fn flip_set)]
@@ -154,18 +149,14 @@ mod pallet {
 		Online { worker: T::AccountId },
 		/// The worker is requesting offline
 		RequestingOffline { worker: T::AccountId },
-		/// The worker unresponsive
-		Unresponsive { worker: T::AccountId },
 		/// The worker is offline
-		Offline { worker: T::AccountId, force: bool, slashed: bool },
+		Offline { worker: T::AccountId, force: bool },
 		/// The worker send heartbeat successfully
 		HeartbeatReceived { worker: T::AccountId },
 		/// The work refresh attestation successfully
 		AttestationRefreshed { worker: T::AccountId },
 		/// The work refresh attestation expired
 		AttestationExpired { worker: T::AccountId },
-		/// The worker got slashed
-		Slashed { worker: T::AccountId, amount: BalanceOf<T> }
 	}
 
 	// Errors inform users that something went wrong.
@@ -222,7 +213,7 @@ mod pallet {
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		fn on_initialize(n: T::BlockNumber) -> Weight {
-			let mut reads: u64 = 2; // read FlipOrFlop & read PendingOfflineWorkers
+			let mut reads: u64 = 1; // Read FlipOrFlop
 			let mut writes: u64 = 0;
 
 			let mut flip_or_flop = FlipOrFlop::<T>::get();
@@ -243,130 +234,44 @@ mod pallet {
 			}
 			match flip_or_flop {
 				FlipFlopStage::FlipToFlop => {
-					let iter = FlipSet::<T>::iter_keys().take(T::MarkingUnresponsivePerBlockLimit::get() as usize);
+					let iter = FlipSet::<T>::iter_keys().take(T::HandleUnresponsivePerBlockLimit::get() as usize);
 					let total_count = FlipSet::<T>::count();
 
 					let mut i: u64 = 0;
 					for worker in iter {
 						FlipSet::<T>::remove(&worker);
-						PendingOfflineWorkers::<T>::insert(&worker, ());
-						Workers::<T>::mutate(&worker, |worker_info| {
-							if let Some(mut info) = worker_info.as_mut() {
-								info.status = WorkerStatus::Unresponsive;
-							}
-						});
-
-						Self::deposit_event(Event::<T>::Unresponsive { worker: worker.clone() });
-
-						T::WorkerLifecycleHooks::after_unresponsive(&worker);
-
+						Self::handle_worker_unresponsive(&worker);
 						i += 1;
 					}
+
+					reads += i;
+					writes += i.saturating_mul(3);
 
 					if i >= total_count as u64 {
 						FlipOrFlop::<T>::set(FlipFlopStage::Flop);
 						writes += 1;
-					} else {
-						reads += i;
-						writes += i.saturating_mul(3);
 					}
 				},
 				FlipFlopStage::FlopToFlip => {
-					let iter = FlopSet::<T>::iter_keys().take(T::MarkingUnresponsivePerBlockLimit::get() as usize);
+					let iter = FlopSet::<T>::iter_keys().take(T::HandleUnresponsivePerBlockLimit::get() as usize);
 					let total_count = FlopSet::<T>::count();
 
 					let mut i: u64 = 0;
 					for worker in iter {
 						FlopSet::<T>::remove(&worker);
-						PendingOfflineWorkers::<T>::insert(&worker, ());
-						Workers::<T>::mutate(&worker, |worker_info| {
-							if let Some(mut info) = worker_info.as_mut() {
-								info.status = WorkerStatus::Unresponsive;
-							}
-						});
-
-						Self::deposit_event(Event::<T>::Unresponsive { worker: worker.clone() });
-
-						T::WorkerLifecycleHooks::after_unresponsive(&worker);
-
+						Self::handle_worker_unresponsive(&worker);
 						i += 1;
 					}
+
+					reads += i;
+					writes += i.saturating_mul(3);
 
 					if i >= total_count as u64 {
 						FlipOrFlop::<T>::set(FlipFlopStage::Flip);
 						writes += 1;
-					} else {
-						reads += i;
-						writes += i.saturating_mul(3);
 					}
 				},
 				_ => {},
-			}
-
-			// TODO: if worker have job, it need to move to the tail
-			if PendingOfflineWorkers::<T>::count() > 0 {
-				let mut i: u64 = 0;
-				let iter = PendingOfflineWorkers::<T>::iter_keys().take(T::MarkingOfflinePerBlockLimit::get() as usize);
-				for worker in iter {
-					// Worker who is `RequestingOffline`, `RefreshRegistrationRequired` should answer heartbeat as is
-					// `Online`
-					FlipSet::<T>::remove(&worker);
-					FlopSet::<T>::remove(&worker);
-					PendingOfflineWorkers::<T>::remove(&worker);
-
-					let mut deregister = false;
-					let mut slashed = false;
-					if let Some(slash_amount) =  T::WorkerLifecycleHooks::settle_slash(&worker) {
-						slashed = true;
-						let (_, not_slashed) = <T as Config>::Currency::slash(&worker, slash_amount);
-						// The worker should be slashed down to `Balances.ExistentialDeposit`
-						// So the `not_slashed = slash_amount - free_balance - reserve_balance + existential_deposit`
-						deregister = if not_slashed.is_zero() {
-							<T as Config>::Currency::reserved_balance(&worker) < T::ReservedDeposit::get()
-						} else {
-							true
-						};
-					}
-
-					T::WorkerLifecycleHooks::before_offline(&worker, false);
-
-					if deregister {
-						let Some(worker_info) = Workers::<T>::get(&worker) else {
-							// unreachable!("Worker must have value");
-							log::error!("Worker must have value");
-							i += 1;
-							continue;
-						};
-						// This should OK, the hard limit is the actual reserved
-						<T as Config>::Currency::unreserve(
-							&worker,
-							worker_info.reserved
-						);
-						let _ = <T as Config>::Currency::transfer(
-							&worker,
-							&worker_info.owner,
-							<T as Config>::Currency::free_balance(&worker),
-							ExistenceRequirement::AllowDeath,
-						);
-						Workers::<T>::remove(&worker);
-
-						Self::deposit_event(Event::<T>::Offline { worker: worker.clone(), force: false, slashed });
-						Self::deposit_event(Event::<T>::Deregistered { worker, force: true });
-					} else {
-						Workers::<T>::mutate(&worker, |worker_info| {
-							if let Some(mut info) = worker_info.as_mut() {
-								info.status = WorkerStatus::Offline;
-							}
-						});
-
-						Self::deposit_event(Event::<T>::Offline { worker, force: false, slashed });
-					}
-
-					i += 1;
-				}
-
-				reads += i.saturating_mul(3);
-				writes += i.saturating_mul(3);
 			}
 
 			T::DbWeight::get().reads_writes(reads, writes)
@@ -543,7 +448,6 @@ impl<T: Config> Pallet<T> {
 	/// 5 Check the attestation (the payload's signature is inside as payload)
 	/// 6 Do `can_online` hook, will pass the payload
 	/// Then
-	/// 1 If the worker's current status is `Unresponsive`, remove it from `PendingOfflineWorkers`
 	/// 2 Update worker's info, persists to storage
 	/// 3 Set flipflop
 	pub fn do_online(who: T::AccountId, payload: OnlinePayload, attestation: Option<Attestation>) -> DispatchResult {
@@ -598,10 +502,6 @@ impl<T: Config> Pallet<T> {
 		}
 
 		T::WorkerLifecycleHooks::can_online(&who, &payload)?;
-
-		if worker_info.status == WorkerStatus::Unresponsive {
-			PendingOfflineWorkers::<T>::remove(&who);
-		}
 
 		worker_info.spec_version = payload.spec_version;
 		worker_info.attestation_method = attestation_method;
@@ -674,7 +574,7 @@ impl<T: Config> Pallet<T> {
 		worker_info.status = WorkerStatus::RequestingOffline;
 		Workers::<T>::insert(&who, worker_info);
 
-		PendingOfflineWorkers::<T>::insert(&who, ());
+		// TODO:
 		// It should keep sending heartbeat until really offline
 
 		Self::deposit_event(Event::<T>::RequestingOffline { worker: who.clone() });
@@ -690,9 +590,7 @@ impl<T: Config> Pallet<T> {
 
 		match worker_info.status {
 			WorkerStatus::Online |
-			WorkerStatus::AttestationExpired |
-			WorkerStatus::RequestingOffline |
-			WorkerStatus::Unresponsive => {},
+			WorkerStatus::RequestingOffline => {},
 			_ => {
 				return Err(Error::<T>::WrongStatus.into())
 			},
@@ -705,41 +603,60 @@ impl<T: Config> Pallet<T> {
 
 		FlipSet::<T>::remove(&who);
 		FlopSet::<T>::remove(&who);
-		PendingOfflineWorkers::<T>::remove(&who);
 
-		// TODO: Apply slash
-		let slashed = false;
-		Self::deposit_event(Event::<T>::Offline { worker: who, force: true, slashed });
+		Self::deposit_event(Event::<T>::Offline { worker: who, force: true });
 		Ok(())
 	}
 
 	pub fn do_heartbeat(who: &T::AccountId) -> DispatchResult {
-		let mut worker_info = Workers::<T>::get(who).ok_or(Error::<T>::NotExists)?;
+		let worker_info = Workers::<T>::get(who).ok_or(Error::<T>::NotExists)?;
 		Self::ensure_worker(who, &worker_info)?;
 		match worker_info.status {
 			WorkerStatus::Online |
-			WorkerStatus::RequestingOffline |
-			WorkerStatus::AttestationExpired => {},
+			WorkerStatus::RequestingOffline => {},
 			_ => {
 				return Err(Error::<T>::NotOnline.into())
 			}
 		}
 
+		// Check whether attestation expired, if yes, treat as force offline
+		let current_block = frame_system::Pallet::<T>::block_number();
+		if current_block - worker_info.attested_at > T::AttestationValidityDuration::get().into() {
+			T::WorkerLifecycleHooks::after_attestation_expired(who);
+
+			FlipSet::<T>::remove(who);
+			FlopSet::<T>::remove(who);
+			Workers::<T>::mutate(who, |worker_info| {
+				if let Some(mut info) = worker_info.as_mut() {
+					info.status = WorkerStatus::Offline;
+				}
+			});
+
+			Self::deposit_event(Event::<T>::AttestationExpired { worker: who.clone() });
+			Self::deposit_event(Event::<T>::Offline { worker: who.clone(), force: true });
+			return Ok(())
+		}
+
+		// Check whether can offline now, We ignore error here
+		if worker_info.status == WorkerStatus::RequestingOffline &&
+			T::WorkerLifecycleHooks::can_offline(who).is_ok() {
+			T::WorkerLifecycleHooks::before_offline(who, false);
+
+			FlipSet::<T>::remove(who);
+			FlopSet::<T>::remove(who);
+			Workers::<T>::mutate(who, |worker_info| {
+				if let Some(mut info) = worker_info.as_mut() {
+					info.status = WorkerStatus::Offline;
+				}
+			});
+
+			Self::deposit_event(Event::<T>::Offline { worker: who.clone(), force: false });
+			return Ok(())
+		}
+
 		Self::flipflop(who)?;
 
 		Self::deposit_event(Event::<T>::HeartbeatReceived { worker: who.clone() });
-
-		let current_block = frame_system::Pallet::<T>::block_number();
-		if current_block - worker_info.attested_at > T::AttestationValidityDuration::get().into() {
-			worker_info.status = WorkerStatus::AttestationExpired;
-			Workers::<T>::insert(who, worker_info);
-
-			PendingOfflineWorkers::<T>::insert(who, ());
-
-			Self::deposit_event(Event::<T>::AttestationExpired { worker: who.clone() });
-
-			T::WorkerLifecycleHooks::after_unresponsive(&who);
-		}
 
 		Ok(())
 	}
@@ -789,6 +706,18 @@ impl<T: Config> Pallet<T> {
 		}
 	}
 
+	fn handle_worker_unresponsive(worker: &T::AccountId) {
+		T::WorkerLifecycleHooks::after_unresponsive(worker);
+
+		Workers::<T>::mutate(worker, |worker_info| {
+			if let Some(mut info) = worker_info.as_mut() {
+				info.status = WorkerStatus::Offline;
+			}
+		});
+
+		Self::deposit_event(Event::<T>::Offline { worker: worker.clone(), force: true });
+	}
+
 	fn verify_attestation(attestation: &Attestation) -> Result<VerifiedAttestation, DispatchError> {
 		let now = T::UnixTime::now().as_millis().saturated_into::<u64>();
 		let verified = attestation.verify(now);
@@ -813,21 +742,6 @@ impl<T: Config> Pallet<T> {
 	) -> DispatchResult {
 		ensure!(*who == worker_info.account, Error::<T>::NotTheWorker);
 		Ok(())
-	}
-
-	fn ensure_worker_attestation_validity(
-		worker_info: &WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>,
-	) -> DispatchResult {
-		if !T::DisallowOptOutAttestation::get() && worker_info.attested_at.is_zero() {
-			return Ok(())
-		}
-
-		let current_block = frame_system::Pallet::<T>::block_number();
-		if current_block - worker_info.attested_at > T::AttestationValidityDuration::get().into() {
-			Err(Error::<T>::AttestationExpired.into())
-		} else {
-			Ok(())
-		}
 	}
 
 	fn ensure_attestation_provided(attestation: &Option<Attestation>) -> DispatchResult {
@@ -865,12 +779,41 @@ impl<T: Config> Pallet<T> {
 	}
 }
 
-impl<T: Config> WorkerManageable<T::AccountId, BalanceOf<T>, T::BlockNumber> for Pallet<T> {
-	fn worker_info(who: &T::AccountId) -> Option<WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>> {
-		Workers::<T>::get(who)
+impl<T: Config> WorkerManageable<T::AccountId, T::BlockNumber> for Pallet<T> {
+	type Balance = BalanceOf<T>;
+	type PositiveImbalance = PositiveImbalanceOf<T>;
+	type NegativeImbalance = NegativeImbalanceOf<T>;
+
+	fn worker_info(worker: &T::AccountId) -> Option<WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>> {
+		Workers::<T>::get(worker)
 	}
 
-	fn slash(who: &T::AccountId, value: BalanceOf<T>, force_offline: bool) {
-		todo!()
+	fn reward(worker: &T::AccountId, source: &T::AccountId, value: BalanceOf<T>) -> DispatchResult {
+		<T as Config>::Currency::transfer(source, worker, value, ExistenceRequirement::KeepAlive)
+	}
+
+	fn slash(worker: &T::AccountId, value: BalanceOf<T>) -> (NegativeImbalanceOf<T>, BalanceOf<T>) {
+		<T as Config>::Currency::slash(worker, value)
+	}
+
+	fn offline(worker: &T::AccountId) -> DispatchResult {
+		let mut worker_info = Workers::<T>::get(worker).ok_or(Error::<T>::NotExists)?;
+		match worker_info.status {
+			WorkerStatus::Online |
+			WorkerStatus::RequestingOffline => {},
+			_ => {
+				return Err(Error::<T>::WrongStatus.into())
+			},
+		}
+
+		worker_info.status = WorkerStatus::Offline;
+		Workers::<T>::insert(worker, worker_info);
+
+		FlipSet::<T>::remove(worker);
+		FlopSet::<T>::remove(worker);
+
+		Self::deposit_event(Event::<T>::Offline { worker: worker.clone(), force: true });
+
+		Ok(())
 	}
 }

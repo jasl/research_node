@@ -94,25 +94,18 @@ pub struct OnlinePayload {
 pub enum WorkerStatus {
 	/// Initial status for a new registered worker.
 	Registered,
-	/// The worker's attestation expired that need to do a refreshing,
-	/// the worker won't accept new job, accepted jobs will still processing.
-	/// Transit from `Online`
-	AttestationExpired,
 	/// The worker is requesting offline,
 	/// the worker won't accept new job, accepted jobs will still processing,
 	/// when accepted jobs processed it can be transited to `Offline` safely without slashing.
 	/// Transit from `Online`
 	RequestingOffline,
-	/// The worker not sent heartbeat during a period, It shall be moved to pending offline queue
-	/// Transit from `Online`
-	Unresponsive,
 	/// The worker is online so it can accept job
-	/// Transit from `Registered`, `Offline`, `RefreshRegistrationRequired`, and `Unresponsive`
-	/// not sure `RequestingOffline`
+	/// Transit from `Registered` and `Offline`,
+	/// not sure for `RequestingOffline` (may have side effect)
 	Online,
 	/// The worker is offline so it can't accept job.
-	/// Transit from `RequestingOffline`, `RefreshRegistrationRequired` when job queue cleared,
-	/// and `Unresponsive` (will be slashed), `Online` (when force)
+	/// Transit from `RequestingOffline` when job queue cleared,
+	/// and `Online` (when force by user or be slashed)
 	Offline,
 }
 

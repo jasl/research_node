@@ -173,6 +173,7 @@ function createSubstrateApi(rpcUrl: string): ApiPromise | null {
       LookupSource: "AccountId",
       OnlinePayload: {
         spec_version: "u32",
+        extra: "BoundedVec<u8, 64000>"
       },
       AttestationPayload: "BoundedVec<u8, 64000>",
       NonTEEAttestationMaterial: {
@@ -193,9 +194,7 @@ function createSubstrateApi(rpcUrl: string): ApiPromise | null {
       WorkerStatus: {
         _enum: [
           "Registered",
-          "AttestationExpired",
           "RequestingOffline",
-          "Unresponsive",
           "Online",
           "Offline",
         ],
@@ -224,9 +223,7 @@ function createAttestation(api: ApiPromise, payload: any) {
 enum WorkerStatus {
   Unregistered = "Unregistered",
   Registered = "Registered",
-  AttestationExpired = "AttestationExpired",
   RequestingOffline = "RequestingOffline",
-  Unresponsive = "Unresponsive",
   Online = "Online",
   Offline = "Offline",
 }
@@ -444,8 +441,7 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
 
   if (
     workerInfo.status === WorkerStatus.Registered ||
-    workerInfo.status === WorkerStatus.Offline ||
-    workerInfo.status === WorkerStatus.Unresponsive
+    workerInfo.status === WorkerStatus.Offline
   ) {
     if (window.locals.sentOnlineAt && window.locals.sentOnlineAt >= finalizedBlockNumber) {
       logger.debug("Waiting online extrinsic finalize");
