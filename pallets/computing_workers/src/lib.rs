@@ -44,10 +44,7 @@ use frame_support::{
 use scale_codec::Encode;
 use sp_core::{sr25519, H256};
 use sp_io::crypto::sr25519_verify;
-use sp_runtime::{
-	traits::{StaticLookup, Zero},
-	SaturatedConversion,
-};
+use sp_runtime::{traits::{StaticLookup, Zero}, SaturatedConversion, Saturating};
 use sp_std::prelude::*;
 
 type AccountIdLookupOf<T> = <<T as frame_system::Config>::Lookup as StaticLookup>::Source;
@@ -151,7 +148,7 @@ mod pallet {
 		/// The worker registered successfully
 		Registered { worker: T::AccountId },
 		/// The worker registered successfully
-		Deregistered { worker: T::AccountId },
+		Deregistered { worker: T::AccountId, force: bool },
 		/// The worker is online
 		Online { worker: T::AccountId },
 		/// The worker is requesting offline
@@ -179,6 +176,8 @@ mod pallet {
 		InitialDepositTooLow,
 		/// Worker already registered
 		AlreadyRegistered,
+		/// Worker's wallet reserved money smaller than should be reserved
+		InsufficientReserved,
 		/// The extrinsic origin isn't the worker's owner
 		NotTheOwner,
 		/// The extrinsic origin isn't the worker
@@ -212,7 +211,7 @@ mod pallet {
 		/// The attestation method must not change
 		AttestationMethodChanged,
 		/// Attestation expired
-		AttestationRefreshNeeded,
+		AttestationExpired,
 		/// Intermission
 		Intermission,
 		/// AlreadySentHeartbeat
@@ -256,7 +255,9 @@ mod pallet {
 							}
 						});
 
-						Self::deposit_event(Event::<T>::Unresponsive { worker });
+						Self::deposit_event(Event::<T>::Unresponsive { worker: worker.clone() });
+
+						T::WorkerLifecycleHooks::after_unresponsive(&worker);
 
 						i += 1;
 					}
@@ -283,7 +284,9 @@ mod pallet {
 							}
 						});
 
-						Self::deposit_event(Event::<T>::Unresponsive { worker });
+						Self::deposit_event(Event::<T>::Unresponsive { worker: worker.clone() });
+
+						T::WorkerLifecycleHooks::after_unresponsive(&worker);
 
 						i += 1;
 					}
@@ -299,9 +302,10 @@ mod pallet {
 				_ => {},
 			}
 
+			// TODO: if worker have job, it need to move to the tail
 			if PendingOfflineWorkers::<T>::count() > 0 {
-				let iter = PendingOfflineWorkers::<T>::iter_keys().take(T::MarkingOfflinePerBlockLimit::get() as usize);
 				let mut i: u64 = 0;
+				let iter = PendingOfflineWorkers::<T>::iter_keys().take(T::MarkingOfflinePerBlockLimit::get() as usize);
 				for worker in iter {
 					// Worker who is `RequestingOffline`, `RefreshRegistrationRequired` should answer heartbeat as is
 					// `Online`
@@ -309,18 +313,53 @@ mod pallet {
 					FlopSet::<T>::remove(&worker);
 					PendingOfflineWorkers::<T>::remove(&worker);
 
-					if let Some(_slash_amount) =  T::WorkerLifecycleHooks::settle_slash(&worker) {
-						// TODO: Apply slash
+					let mut deregister = false;
+					let mut slashed = false;
+					if let Some(slash_amount) =  T::WorkerLifecycleHooks::settle_slash(&worker) {
+						slashed = true;
+						let (_, not_slashed) = <T as Config>::Currency::slash(&worker, slash_amount);
+						// The worker should be slashed down to `Balances.ExistentialDeposit`
+						// So the `not_slashed = slash_amount - free_balance - reserve_balance + existential_deposit`
+						deregister = if not_slashed.is_zero() {
+							<T as Config>::Currency::reserved_balance(&worker) < T::ReservedDeposit::get()
+						} else {
+							true
+						};
 					}
 
-					Workers::<T>::mutate(&worker, |worker_info| {
-						if let Some(mut info) = worker_info.as_mut() {
-							info.status = WorkerStatus::Offline;
-						}
-					});
+					T::WorkerLifecycleHooks::before_offline(&worker, false);
 
-					let slashed = false;
-					Self::deposit_event(Event::<T>::Offline { worker, force: false, slashed });
+					if deregister {
+						let Some(worker_info) = Workers::<T>::get(&worker) else {
+							// unreachable!("Worker must have value");
+							log::error!("Worker must have value");
+							i += 1;
+							continue;
+						};
+						// This should OK, the hard limit is the actual reserved
+						<T as Config>::Currency::unreserve(
+							&worker,
+							worker_info.reserved
+						);
+						let _ = <T as Config>::Currency::transfer(
+							&worker,
+							&worker_info.owner,
+							<T as Config>::Currency::free_balance(&worker),
+							ExistenceRequirement::AllowDeath,
+						);
+						Workers::<T>::remove(&worker);
+
+						Self::deposit_event(Event::<T>::Offline { worker: worker.clone(), force: false, slashed });
+						Self::deposit_event(Event::<T>::Deregistered { worker, force: true });
+					} else {
+						Workers::<T>::mutate(&worker, |worker_info| {
+							if let Some(mut info) = worker_info.as_mut() {
+								info.status = WorkerStatus::Offline;
+							}
+						});
+
+						Self::deposit_event(Event::<T>::Offline { worker, force: false, slashed });
+					}
 
 					i += 1;
 				}
@@ -478,6 +517,7 @@ impl<T: Config> Pallet<T> {
 
 		let reserved = worker_info.reserved;
 		if !reserved.is_zero() {
+			// The upper limit is the actual reserved, so it is OK
 			<T as Config>::Currency::unreserve(&worker, reserved);
 		}
 		<T as Config>::Currency::transfer(
@@ -489,7 +529,7 @@ impl<T: Config> Pallet<T> {
 
 		Workers::<T>::remove(&worker);
 
-		Self::deposit_event(Event::<T>::Deregistered { worker });
+		Self::deposit_event(Event::<T>::Deregistered { worker, force: false });
 		Ok(())
 	}
 
@@ -507,7 +547,18 @@ impl<T: Config> Pallet<T> {
 			Error::<T>::CanNotDowngrade
 		);
 
-		// TODO: Check reserved money
+		// Check reserved money
+		let reserved = <T as Config>::Currency::reserved_balance(&who);
+		if reserved < worker_info.reserved {
+			// Try add reserved from free
+			let free = <T as Config>::Currency::free_balance(&who);
+			let should_add_reserve = worker_info.reserved.saturating_sub(reserved);
+			ensure!(
+				free >= should_add_reserve,
+				Error::<T>::InsufficientReserved
+			);
+			<T as Config>::Currency::reserve(&who, should_add_reserve)?;
+		}
 
 		Self::ensure_attestation_provided(&attestation)?;
 
@@ -532,6 +583,8 @@ impl<T: Config> Pallet<T> {
 			);
 		}
 
+		T::WorkerLifecycleHooks::can_online(&who)?;
+
 		if worker_info.status == WorkerStatus::Unresponsive {
 			PendingOfflineWorkers::<T>::remove(&who);
 		}
@@ -544,7 +597,10 @@ impl<T: Config> Pallet<T> {
 
 		Self::flipflop_for_online(&who);
 
-		Self::deposit_event(Event::<T>::Online { worker: who });
+		Self::deposit_event(Event::<T>::Online { worker: who.clone() });
+
+		T::WorkerLifecycleHooks::after_online(&who);
+
 		Ok(())
 	}
 
@@ -596,22 +652,16 @@ impl<T: Config> Pallet<T> {
 
 		ensure!(worker_info.status == WorkerStatus::Online, Error::<T>::NotOnline);
 
-		// The fast path, the worker can safely offline if no workload
-		worker_info.status = WorkerStatus::Offline;
+		// TODO: enable this path when we have real workload
+		worker_info.status = WorkerStatus::RequestingOffline;
 		Workers::<T>::insert(&who, worker_info);
 
-		FlipSet::<T>::remove(&who);
-		FlopSet::<T>::remove(&who);
-		Self::deposit_event(Event::<T>::Offline { worker: who, force: false, slashed: false });
+		PendingOfflineWorkers::<T>::insert(&who, ());
+		// It should keep sending heartbeat until really offline
 
-		// TODO: enable this path when we have real workload
-		// worker_info.status = WorkerStatus::RequestingOffline;
-		// Workers::<T>::insert(&who, worker_info);
-		//
-		// PendingOfflineWorkers::<T>::insert(&who, ());
-		// // It should keep sending heartbeat until really offline
-		//
-		// Self::deposit_event(Event::<T>::RequestingOffline { worker: who });
+		Self::deposit_event(Event::<T>::RequestingOffline { worker: who.clone() });
+
+		T::WorkerLifecycleHooks::after_requesting_offline(&who);
 
 		Ok(())
 	}
@@ -629,6 +679,8 @@ impl<T: Config> Pallet<T> {
 				return Err(Error::<T>::WrongStatus.into())
 			},
 		}
+
+		T::WorkerLifecycleHooks::before_offline(&who, true);
 
 		worker_info.status = WorkerStatus::Offline;
 		Workers::<T>::insert(&who, worker_info);
@@ -667,6 +719,8 @@ impl<T: Config> Pallet<T> {
 			PendingOfflineWorkers::<T>::insert(who, ());
 
 			Self::deposit_event(Event::<T>::AttestationExpired { worker: who.clone() });
+
+			T::WorkerLifecycleHooks::after_unresponsive(&who);
 		}
 
 		Ok(())
@@ -752,7 +806,7 @@ impl<T: Config> Pallet<T> {
 
 		let current_block = frame_system::Pallet::<T>::block_number();
 		if current_block - worker_info.attested_at > T::AttestationValidityDuration::get().into() {
-			Err(Error::<T>::AttestationRefreshNeeded.into())
+			Err(Error::<T>::AttestationExpired.into())
 		} else {
 			Ok(())
 		}

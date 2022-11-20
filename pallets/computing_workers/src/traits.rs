@@ -4,20 +4,21 @@ use frame_support::dispatch::DispatchResult;
 /// Trait describing something that implements a hook for any operations to perform when a staker is
 /// slashed.
 pub trait WorkerLifecycleHooks<AccountId, Balance> {
-	/// A hook before transit the worker to online status,
+	/// A hook for checking the worker whether can online,
 	/// can use for add extra conditions check, if returns error, the worker will not be online
-	fn before_online(worker: &AccountId) -> DispatchResult;
+	fn can_online(worker: &AccountId) -> DispatchResult;
 	/// A hook after the worker transited to online status,
 	/// can use for add additional business logic, e.g. assign job, reserve more money
 	fn after_online(worker: &AccountId);
 
-	/// A hook before transit the worker to offline status,
+	/// A hook for checking the worker whether can offline,
 	/// can use for add extra conditions check,
 	/// if returns error (e.g. still have job running), the worker will not be offline
-	fn before_offline(worker: &AccountId) -> DispatchResult;
-	/// A hook after the worker transited to offline status,
+	fn can_offline(worker: &AccountId) -> DispatchResult;
+	/// A hook before the worker transited to offline status,
 	/// can use for add additional business logic, e.g. un-reserve money
-	fn after_offline(worker: &AccountId);
+	/// when `force` is true, means it is the user force to do this
+	fn before_offline(worker: &AccountId, force: bool);
 
 	/// A hook after the worker transited to unresponsive status,
 	/// can use for add additional business logic, e.g. stop assigning job, do slash
@@ -37,7 +38,7 @@ pub trait WorkerLifecycleHooks<AccountId, Balance> {
 }
 
 impl<AccountId, Balance> WorkerLifecycleHooks<AccountId, Balance> for () {
-	fn before_online(_: &AccountId) -> DispatchResult {
+	fn can_online(_: &AccountId) -> DispatchResult {
 		Ok(())
 	}
 
@@ -45,11 +46,11 @@ impl<AccountId, Balance> WorkerLifecycleHooks<AccountId, Balance> for () {
 		// Do nothing
 	}
 
-	fn before_offline(_: &AccountId) -> DispatchResult {
+	fn can_offline(_: &AccountId) -> DispatchResult {
 		Ok(())
 	}
 
-	fn after_offline(_: &AccountId) {
+	fn before_offline(_: &AccountId, _: bool) {
 		// Do nothing
 	}
 
