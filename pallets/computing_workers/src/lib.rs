@@ -198,17 +198,15 @@ mod pallet {
 		/// Worker software changed, it must offline first
 		SoftwareChanged,
 		/// Can't verify payload
-		MismatchedPayloadSignature,
+		PayloadSignatureMismatched,
 		/// The runtime disallowed NonTEE worker
 		DisallowNonTEEAttestation,
 		/// Unsupported attestation
 		UnsupportedAttestation,
 		/// The attestation method must not change
 		AttestationMethodChanged,
-		/// Attestation expired
-		AttestationExpired,
 		/// AlreadySentHeartbeat
-		AlreadySentHeartbeat,
+		HeartbeatAlreadySent,
 		/// Too early to send heartbeat
 		TooEarly,
 	}
@@ -516,7 +514,7 @@ impl<T: Config> Pallet<T> {
 
 			ensure!(
 				sr25519_verify(&signature, &encoded_message, &worker_public_key),
-				Error::<T>::MismatchedPayloadSignature
+				Error::<T>::PayloadSignatureMismatched
 			);
 		}
 
@@ -569,7 +567,7 @@ impl<T: Config> Pallet<T> {
 
 			ensure!(
 				sr25519_verify(&signature, &encoded_message, &worker_public_key),
-				Error::<T>::MismatchedPayloadSignature
+				Error::<T>::PayloadSignatureMismatched
 			);
 		}
 
@@ -719,7 +717,7 @@ impl<T: Config> Pallet<T> {
 		match stage {
 			FlipFlopStage::Flip => {
 				let Some(flip) = FlipSet::<T>::get(worker) else {
-					return Err(Error::<T>::AlreadySentHeartbeat.into())
+					return Err(Error::<T>::HeartbeatAlreadySent.into())
 				};
 				ensure!(flip <= current_block, Error::<T>::TooEarly);
 
@@ -728,7 +726,7 @@ impl<T: Config> Pallet<T> {
 			},
 			FlipFlopStage::Flop => {
 				let Some(flop) = FlopSet::<T>::get(worker) else {
-					return Err(Error::<T>::AlreadySentHeartbeat.into())
+					return Err(Error::<T>::HeartbeatAlreadySent.into())
 				};
 				ensure!(flop <= current_block, Error::<T>::TooEarly);
 
