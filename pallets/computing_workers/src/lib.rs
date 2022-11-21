@@ -136,8 +136,6 @@ mod pallet {
 	#[pallet::getter(fn flip_flop_stage)]
 	pub type FlipOrFlop<T> = StorageValue<_, FlipFlopStage, ValueQuery>;
 
-	// Pallets use events to inform users when important changes are made.
-	// https://docs.substrate.io/main-docs/build/events-errors/
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
@@ -362,9 +360,17 @@ mod pallet {
 		/// The worker requesting offline
 		#[pallet::weight(0)]
 		#[transactional]
-		pub fn requesting_offline(origin: OriginFor<T>) -> DispatchResult {
+		pub fn request_offline(origin: OriginFor<T>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-			Self::do_requesting_offline(who)
+			Self::do_request_offline(who, None)
+		}
+
+		/// The owner (or his proxy) requesting a worker to offline
+		#[pallet::weight(0)]
+		#[transactional]
+		pub fn request_offline_for(origin: OriginFor<T>, worker: T::AccountId) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+			Self::do_request_offline(worker, Some(who))
 		}
 
 		/// The worker force offline, slashing will apply
@@ -372,7 +378,15 @@ mod pallet {
 		#[transactional]
 		pub fn force_offline(origin: OriginFor<T>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-			Self::do_force_offline(who)
+			Self::do_force_offline(who, None)
+		}
+
+		/// The owner (or his proxy) force a worker to offline, will apply slash
+		#[pallet::weight(0)]
+		#[transactional]
+		pub fn force_offline_for(origin: OriginFor<T>, worker: T::AccountId) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+			Self::do_force_offline(worker, Some(who))
 		}
 
 		/// Worker report it is still online, must called by the worker
@@ -386,8 +400,8 @@ mod pallet {
 }
 
 impl<T: Config> Pallet<T> {
-	fn do_register(who: T::AccountId, initial_deposit: BalanceOf<T>, worker: T::AccountId) -> DispatchResult {
-		ensure!(who != worker, Error::<T>::InvalidOwner);
+	fn do_register(owner: T::AccountId, initial_deposit: BalanceOf<T>, worker: T::AccountId) -> DispatchResult {
+		ensure!(owner != worker, Error::<T>::InvalidOwner);
 
 		let initial_reserved_deposit = T::ReservedDeposit::get();
 		ensure!(initial_deposit >= initial_reserved_deposit, Error::<T>::InitialDepositTooLow);
@@ -396,7 +410,7 @@ impl<T: Config> Pallet<T> {
 
 		let worker_info = WorkerInfo {
 			account: worker.clone(),
-			owner: who.clone(),
+			owner: owner.clone(),
 			reserved: initial_reserved_deposit,
 			status: WorkerStatus::Registered,
 			spec_version: 0,
@@ -404,7 +418,7 @@ impl<T: Config> Pallet<T> {
 			attested_at: T::BlockNumber::default(),
 		};
 
-		<T as Config>::Currency::transfer(&who, &worker, initial_deposit, ExistenceRequirement::KeepAlive)?;
+		<T as Config>::Currency::transfer(&owner, &worker, initial_deposit, ExistenceRequirement::KeepAlive)?;
 		if !initial_reserved_deposit.is_zero() {
 			<T as Config>::Currency::reserve(&worker, initial_reserved_deposit)?;
 		}
@@ -415,9 +429,9 @@ impl<T: Config> Pallet<T> {
 		Ok(())
 	}
 
-	fn do_deregister(who: T::AccountId, worker: T::AccountId) -> DispatchResult {
+	fn do_deregister(owner: T::AccountId, worker: T::AccountId) -> DispatchResult {
 		let worker_info = Workers::<T>::get(&worker).ok_or(Error::<T>::NotExists)?;
-		Self::ensure_owner(&who, &worker_info)?;
+		Self::ensure_owner(&owner, &worker_info)?;
 		ensure!(
 			worker_info.status == WorkerStatus::Offline || worker_info.status == WorkerStatus::Registered,
 			Error::<T>::NotOffline
@@ -430,7 +444,7 @@ impl<T: Config> Pallet<T> {
 		}
 		<T as Config>::Currency::transfer(
 			&worker,
-			&who,
+			&owner,
 			<T as Config>::Currency::free_balance(&worker),
 			ExistenceRequirement::AllowDeath,
 		)?;
@@ -452,9 +466,9 @@ impl<T: Config> Pallet<T> {
 	/// Then
 	/// 2 Update worker's info, persists to storage
 	/// 3 Set flipflop
-	pub fn do_online(who: T::AccountId, payload: OnlinePayload, attestation: Option<Attestation>) -> DispatchResult {
-		let mut worker_info = Workers::<T>::get(&who).ok_or(Error::<T>::NotExists)?;
-		Self::ensure_worker(&who, &worker_info)?;
+	pub fn do_online(worker: T::AccountId, payload: OnlinePayload, attestation: Option<Attestation>) -> DispatchResult {
+		let mut worker_info = Workers::<T>::get(&worker).ok_or(Error::<T>::NotExists)?;
+		Self::ensure_worker(&worker, &worker_info)?;
 		match worker_info.status {
 			WorkerStatus::Registered |
 			WorkerStatus::Offline => {}
@@ -468,16 +482,16 @@ impl<T: Config> Pallet<T> {
 		);
 
 		// Check reserved money
-		let reserved = <T as Config>::Currency::reserved_balance(&who);
+		let reserved = <T as Config>::Currency::reserved_balance(&worker);
 		if reserved < worker_info.reserved {
 			// Try add reserved from free
-			let free = <T as Config>::Currency::free_balance(&who);
+			let free = <T as Config>::Currency::free_balance(&worker);
 			let should_add_reserve = worker_info.reserved.saturating_sub(reserved);
 			ensure!(
 				free >= should_add_reserve,
 				Error::<T>::InsufficientReserved
 			);
-			<T as Config>::Currency::reserve(&who, should_add_reserve)?;
+			<T as Config>::Currency::reserve(&worker, should_add_reserve)?;
 		}
 
 		Self::ensure_attestation_provided(&attestation)?;
@@ -487,7 +501,7 @@ impl<T: Config> Pallet<T> {
 			attestation_method = Some(attestation.method());
 			let verified = Self::verify_attestation(&attestation)?;
 
-			let encode_worker = T::AccountId::encode(&who);
+			let encode_worker = T::AccountId::encode(&worker);
 			let h256_worker = H256::from_slice(&encode_worker);
 			let worker_public_key = sr25519::Public::from_h256(h256_worker);
 
@@ -503,31 +517,31 @@ impl<T: Config> Pallet<T> {
 			);
 		}
 
-		T::WorkerLifecycleHooks::can_online(&who, &payload)?;
+		T::WorkerLifecycleHooks::can_online(&worker, &payload)?;
 
 		worker_info.spec_version = payload.spec_version;
 		worker_info.attestation_method = attestation_method;
 		worker_info.attested_at = frame_system::Pallet::<T>::block_number();
 		worker_info.status = WorkerStatus::Online;
 
-		Workers::<T>::insert(&who, worker_info);
+		Workers::<T>::insert(&worker, worker_info);
 
-		Self::flipflop_for_online(&who);
+		Self::flipflop_for_online(&worker);
 
-		Self::deposit_event(Event::<T>::Online { worker: who.clone() });
+		Self::deposit_event(Event::<T>::Online { worker: worker.clone() });
 
-		T::WorkerLifecycleHooks::after_online(&who);
+		T::WorkerLifecycleHooks::after_online(&worker);
 
 		Ok(())
 	}
 
 	fn do_refresh_attestation(
-		who: T::AccountId,
+		worker: T::AccountId,
 		payload: OnlinePayload,
 		attestation: Option<Attestation>,
 	) -> DispatchResult {
-		let mut worker_info = Workers::<T>::get(&who).ok_or(Error::<T>::NotExists)?;
-		Self::ensure_worker(&who, &worker_info)?;
+		let mut worker_info = Workers::<T>::get(&worker).ok_or(Error::<T>::NotExists)?;
+		Self::ensure_worker(&worker, &worker_info)?;
 
 		if worker_info.attestation_method.is_none() {
 			return Ok(())
@@ -540,7 +554,7 @@ impl<T: Config> Pallet<T> {
 		if let Some(attestation) = attestation {
 			let verified = Self::verify_attestation(&attestation)?;
 
-			let encode_worker = T::AccountId::encode(&who);
+			let encode_worker = T::AccountId::encode(&worker);
 			let h256_worker = H256::from_slice(&encode_worker);
 			let worker_public_key = sr25519::Public::from_h256(h256_worker);
 
@@ -557,54 +571,62 @@ impl<T: Config> Pallet<T> {
 		}
 
 		worker_info.attested_at = frame_system::Pallet::<T>::block_number();
-		Workers::<T>::insert(&who, worker_info);
+		Workers::<T>::insert(&worker, worker_info);
 
-		Self::deposit_event(Event::<T>::AttestationRefreshed { worker: who.clone() });
+		Self::deposit_event(Event::<T>::AttestationRefreshed { worker: worker.clone() });
 
-		T::WorkerLifecycleHooks::after_refresh_attestation(&who, &payload);
+		T::WorkerLifecycleHooks::after_refresh_attestation(&worker, &payload);
 
 		Ok(())
 	}
 
 	/// Transit worker to `Offline` status
-	pub fn do_requesting_offline(who: T::AccountId) -> DispatchResult {
-		let worker_info = Workers::<T>::get(&who).ok_or(Error::<T>::NotExists)?;
-		Self::ensure_worker(&who, &worker_info)?;
+	pub fn do_request_offline(worker: T::AccountId, owner: Option<T::AccountId>) -> DispatchResult {
+		let worker_info = Workers::<T>::get(&worker).ok_or(Error::<T>::NotExists)?;
+		Self::ensure_worker(&worker, &worker_info)?;
+
+		if let Some(owner) = owner {
+			Self::ensure_owner(&owner, &worker_info)?;
+		}
 
 		ensure!(worker_info.status == WorkerStatus::Online, Error::<T>::NotOnline);
 
-		if T::WorkerLifecycleHooks::can_offline(&who).is_ok() {
+		if T::WorkerLifecycleHooks::can_offline(&worker).is_ok() {
 			// Fast path
-			T::WorkerLifecycleHooks::before_offline(&who, false);
+			T::WorkerLifecycleHooks::before_offline(&worker, false);
 
-			FlipSet::<T>::remove(&who);
-			FlopSet::<T>::remove(&who);
-			Workers::<T>::mutate(&who, |worker_info| {
+			FlipSet::<T>::remove(&worker);
+			FlopSet::<T>::remove(&worker);
+			Workers::<T>::mutate(&worker, |worker_info| {
 				if let Some(mut info) = worker_info.as_mut() {
 					info.status = WorkerStatus::Offline;
 				}
 			});
 
-			Self::deposit_event(Event::<T>::Offline { worker: who, force: false });
+			Self::deposit_event(Event::<T>::Offline { worker, force: false });
 		} else {
 			// the worker should keep sending heartbeat until get permission to offline
-			Workers::<T>::mutate(&who, |worker_info| {
+			Workers::<T>::mutate(&worker, |worker_info| {
 				if let Some(mut info) = worker_info.as_mut() {
 					info.status = WorkerStatus::RequestingOffline;
 				}
 			});
 
-			Self::deposit_event(Event::<T>::RequestingOffline { worker: who.clone() });
+			Self::deposit_event(Event::<T>::RequestingOffline { worker: worker.clone() });
 
-			T::WorkerLifecycleHooks::after_requesting_offline(&who);
+			T::WorkerLifecycleHooks::after_requesting_offline(&worker);
 		}
 
 		Ok(())
 	}
 
-	pub fn do_force_offline(who: T::AccountId) -> DispatchResult {
-		let mut worker_info = Workers::<T>::get(&who).ok_or(Error::<T>::NotExists)?;
-		Self::ensure_worker(&who, &worker_info)?;
+	pub fn do_force_offline(worker: T::AccountId, owner: Option<T::AccountId>) -> DispatchResult {
+		let mut worker_info = Workers::<T>::get(&worker).ok_or(Error::<T>::NotExists)?;
+		Self::ensure_worker(&worker, &worker_info)?;
+
+		if let Some(owner) = owner {
+			Self::ensure_owner(&owner, &worker_info)?;
+		}
 
 		match worker_info.status {
 			WorkerStatus::Online |
@@ -614,21 +636,21 @@ impl<T: Config> Pallet<T> {
 			},
 		}
 
-		T::WorkerLifecycleHooks::before_offline(&who, true);
+		T::WorkerLifecycleHooks::before_offline(&worker, true);
 
 		worker_info.status = WorkerStatus::Offline;
-		Workers::<T>::insert(&who, worker_info);
+		Workers::<T>::insert(&worker, worker_info);
 
-		FlipSet::<T>::remove(&who);
-		FlopSet::<T>::remove(&who);
+		FlipSet::<T>::remove(&worker);
+		FlopSet::<T>::remove(&worker);
 
-		Self::deposit_event(Event::<T>::Offline { worker: who, force: true });
+		Self::deposit_event(Event::<T>::Offline { worker, force: true });
 		Ok(())
 	}
 
-	pub fn do_heartbeat(who: &T::AccountId) -> DispatchResult {
-		let worker_info = Workers::<T>::get(who).ok_or(Error::<T>::NotExists)?;
-		Self::ensure_worker(who, &worker_info)?;
+	pub fn do_heartbeat(worker: &T::AccountId) -> DispatchResult {
+		let worker_info = Workers::<T>::get(worker).ok_or(Error::<T>::NotExists)?;
+		Self::ensure_worker(worker, &worker_info)?;
 		match worker_info.status {
 			WorkerStatus::Online |
 			WorkerStatus::RequestingOffline => {},
@@ -640,103 +662,103 @@ impl<T: Config> Pallet<T> {
 		// Check whether attestation expired, if yes, treat as force offline
 		let current_block = frame_system::Pallet::<T>::block_number();
 		if current_block - worker_info.attested_at > T::AttestationValidityDuration::get().into() {
-			T::WorkerLifecycleHooks::after_attestation_expired(who);
+			T::WorkerLifecycleHooks::after_attestation_expired(worker);
 
-			FlipSet::<T>::remove(who);
-			FlopSet::<T>::remove(who);
-			Workers::<T>::mutate(who, |worker_info| {
+			FlipSet::<T>::remove(worker);
+			FlopSet::<T>::remove(worker);
+			Workers::<T>::mutate(worker, |worker_info| {
 				if let Some(mut info) = worker_info.as_mut() {
 					info.status = WorkerStatus::Offline;
 				}
 			});
 
-			Self::deposit_event(Event::<T>::AttestationExpired { worker: who.clone() });
-			Self::deposit_event(Event::<T>::Offline { worker: who.clone(), force: true });
+			Self::deposit_event(Event::<T>::AttestationExpired { worker: worker.clone() });
+			Self::deposit_event(Event::<T>::Offline { worker: worker.clone(), force: true });
 			return Ok(())
 		}
 
 		// Check whether can offline now, We ignore error here
 		if worker_info.status == WorkerStatus::RequestingOffline &&
-			T::WorkerLifecycleHooks::can_offline(who).is_ok() {
-			T::WorkerLifecycleHooks::before_offline(who, false);
+			T::WorkerLifecycleHooks::can_offline(worker).is_ok() {
+			T::WorkerLifecycleHooks::before_offline(worker, false);
 
-			FlipSet::<T>::remove(who);
-			FlopSet::<T>::remove(who);
-			Workers::<T>::mutate(who, |worker_info| {
+			FlipSet::<T>::remove(worker);
+			FlopSet::<T>::remove(worker);
+			Workers::<T>::mutate(worker, |worker_info| {
 				if let Some(mut info) = worker_info.as_mut() {
 					info.status = WorkerStatus::Offline;
 				}
 			});
 
-			Self::deposit_event(Event::<T>::Offline { worker: who.clone(), force: false });
+			Self::deposit_event(Event::<T>::Offline { worker: worker.clone(), force: false });
 			return Ok(())
 		}
 
 		// Check the worker's reserved money
-		if <T as Config>::Currency::reserved_balance(who) < T::ReservedDeposit::get() {
-			T::WorkerLifecycleHooks::after_insufficient_reserved_funds(who);
+		if <T as Config>::Currency::reserved_balance(worker) < T::ReservedDeposit::get() {
+			T::WorkerLifecycleHooks::after_insufficient_reserved_funds(worker);
 
-			FlipSet::<T>::remove(who);
-			FlopSet::<T>::remove(who);
-			Workers::<T>::mutate(who, |worker_info| {
+			FlipSet::<T>::remove(worker);
+			FlopSet::<T>::remove(worker);
+			Workers::<T>::mutate(worker, |worker_info| {
 				if let Some(mut info) = worker_info.as_mut() {
 					info.status = WorkerStatus::Offline;
 				}
 			});
 
-			Self::deposit_event(Event::<T>::InsufficientReservedFunds { worker: who.clone() });
-			Self::deposit_event(Event::<T>::Offline { worker: who.clone(), force: true });
+			Self::deposit_event(Event::<T>::InsufficientReservedFunds { worker: worker.clone() });
+			Self::deposit_event(Event::<T>::Offline { worker: worker.clone(), force: true });
 			return Ok(())
 		}
 
-		Self::flipflop(who)?;
+		Self::flipflop(worker)?;
 
-		Self::deposit_event(Event::<T>::HeartbeatReceived { worker: who.clone() });
+		Self::deposit_event(Event::<T>::HeartbeatReceived { worker: worker.clone() });
 
 		Ok(())
 	}
 
-	fn flipflop(who: &T::AccountId) -> DispatchResult {
+	fn flipflop(worker: &T::AccountId) -> DispatchResult {
 		let stage = FlipOrFlop::<T>::get();
 		match stage {
 			FlipFlopStage::Flip => {
-				let Some(_flip) = FlipSet::<T>::take(who) else {
+				let Some(_flip) = FlipSet::<T>::take(worker) else {
 					return Err(Error::<T>::AlreadySentHeartbeat.into())
 				};
 
-				FlopSet::<T>::insert(who, ());
+				FlopSet::<T>::insert(worker, ());
 
-				Self::deposit_event(Event::<T>::HeartbeatReceived { worker: who.clone() });
+				Self::deposit_event(Event::<T>::HeartbeatReceived { worker: worker.clone() });
 				Ok(())
 			},
 			FlipFlopStage::Flop => {
-				let Some(_flop) = FlopSet::<T>::take(who) else {
+				let Some(_flop) = FlopSet::<T>::take(worker) else {
 					return Err(Error::<T>::AlreadySentHeartbeat.into());
 				};
 
-				FlipSet::<T>::insert(who, ());
+				FlipSet::<T>::insert(worker, ());
 
-				Self::deposit_event(Event::<T>::HeartbeatReceived { worker: who.clone() });
+				Self::deposit_event(Event::<T>::HeartbeatReceived { worker: worker.clone() });
 				Ok(())
 			},
 			_ => Err(Error::<T>::Intermission.into()),
 		}
 	}
 
-	fn flipflop_for_online(who: &T::AccountId) {
+	fn flipflop_for_online(worker: &T::AccountId) {
 		let stage = FlipOrFlop::<T>::get();
 		match stage {
 			FlipFlopStage::Flip => {
-				FlopSet::<T>::insert(who, ());
+				FlopSet::<T>::insert(worker, ());
 			},
 			FlipFlopStage::Flop => {
-				FlipSet::<T>::insert(who, ());
+				FlipSet::<T>::insert(worker, ());
 			},
 			FlipFlopStage::FlipToFlop => {
-				FlipSet::<T>::insert(who, ());
+				FlipSet::<T>::insert(worker, ());
 			},
 			FlipFlopStage::FlopToFlip => {
-				FlopSet::<T>::insert(who, ());
+				FlopSet::<T>::insert(worker, ());
 			},
 		}
 	}

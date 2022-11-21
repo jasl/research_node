@@ -421,8 +421,8 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
     logger.warning("Worker hasn't registered");
     if (window.ownerKeyPair !== null) {
       const initialDeposit = numberToBalance(150);
-      logger.info(`Sending "computing_workers.register(initialDeposit, worker)`);
-      const txPromise = api.tx.computingWorkers.register(initialDeposit, window.workerKeyPair.address);
+      logger.info(`Sending "computing_workers.register(worker, initialDeposit)`);
+      const txPromise = api.tx.computingWorkers.register(window.workerKeyPair.address, initialDeposit);
       logger.debug(`Call hash: ${txPromise.toHex()}`);
       const txHash = await txPromise.signAndSend(window.ownerKeyPair, { nonce: -1 });
       logger.info(`Transaction hash: ${txHash.toHex()}`);
