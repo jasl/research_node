@@ -20,12 +20,12 @@ const parsedArgs = parse(Deno.args, {
     "workPath": "work-path",
     "ownerPhrase": "owner-phrase",
     "refreshAttestationInterval": "refresh-attestation-interval",
-    "noHeartbeat": "no-heartbeat"
+    "noHeartbeat": "no-heartbeat",
   },
   boolean: [
     "help",
     "version",
-    "noHeartbeat"
+    "noHeartbeat",
   ],
   string: [
     "rpcUrl",
@@ -43,7 +43,7 @@ const parsedArgs = parse(Deno.args, {
     version: false,
     ownerPhrase: "",
     refreshAttestationInterval: 100, // 40000,
-    noHeartbeat: false
+    noHeartbeat: false,
   },
 });
 
@@ -406,8 +406,8 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
       v === null || v === undefined ? null : v.toJSON()
     ),
     api.query.computingWorkers.flipOrFlop().then(stage => stage.toString()),
-    api.query.computingWorkers.flipSet(window.workerKeyPair.address).then(v => v.isSome),
-    api.query.computingWorkers.flopSet(window.workerKeyPair.address).then(v => v.isSome),
+    api.query.computingWorkers.flipSet(window.workerKeyPair.address).then(v => v.isSome ? v.unwrap().toNumber() : null),
+    api.query.computingWorkers.flopSet(window.workerKeyPair.address).then(v => v.isSome ? v.unwrap().toNumber() : null),
     api.query.system.account(window.workerKeyPair.address),
   ]);
 
@@ -495,7 +495,11 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
   }
 
   if (!window.noHeartbeat) {
-    const shouldHeartBeat = (flipOrFlop === FlipFlopStage.Flip && inFlipSet) || (flipOrFlop === FlipFlopStage.Flop && inFlopSet);
+    const shouldHeartBeat = (
+      flipOrFlop === FlipFlopStage.Flip && inFlipSet && latestBlockNumber >= inFlipSet
+    ) || (
+      flipOrFlop === FlipFlopStage.Flop && inFlopSet && latestBlockNumber >= inFlopSet
+    );
     if (shouldHeartBeat && window.locals.sentHeartbeatAt === undefined) {
       logger.info(`Sending "computing_workers.heartbeat()`);
       const txPromise = api.tx.computingWorkers.heartbeat();
@@ -536,7 +540,7 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
     //   return;
     // }
 
-    console.log(event.toHuman());
+    // console.log(event.toHuman());
   });
 });
 

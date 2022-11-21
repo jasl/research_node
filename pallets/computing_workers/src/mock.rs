@@ -31,6 +31,7 @@ frame_support::construct_runtime!(
 		System: frame_system,
 		Balances: pallet_balances,
 		Timestamp: pallet_timestamp,
+		RandomnessCollectiveFlip: pallet_randomness_collective_flip,
 		ComputingWorkers: pallet_computing_workers,
 	}
 );
@@ -81,10 +82,13 @@ impl pallet_timestamp::Config for Test {
 	type WeightInfo = ();
 }
 
+impl pallet_randomness_collective_flip::Config for Test {}
+
 impl pallet_computing_workers::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;
 	type UnixTime = Timestamp;
+	type Randomness = RandomnessCollectiveFlip;
 	type WorkerLifecycleHooks = ();
 	type HandleUnresponsivePerBlockLimit = ConstU32<3>;
 	type ReservedDeposit = ConstU128<{ 100 * DOLLARS }>;

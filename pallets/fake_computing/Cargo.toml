@@ -23,6 +23,7 @@ frame-support = { git = "https://github.com/paritytech/substrate", branch = "mas
 frame-system = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
 
 pallet-balances = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
+pallet-randomness-collective-flip = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
 
 pallet-computing_workers = { path = "../computing_workers", default-features = false }
 
@@ -42,16 +43,18 @@ std = [
 	"frame-support/std",
 	"frame-system/std",
 	"scale-info/std",
-	"pallet-computing_workers/std",
 	"pallet-balances/std",
+	"pallet-randomness-collective-flip/std",
+	"pallet-computing_workers/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
-	"pallet-computing_workers/runtime-benchmarks",
 	"pallet-balances/runtime-benchmarks",
+	"pallet-computing_workers/runtime-benchmarks",
 ]
 try-runtime = [
 	"frame-support/try-runtime",
-	"pallet-computing_workers/try-runtime",
 	"pallet-balances/try-runtime",
+	"pallet-randomness-collective-flip/try-runtime",
+	"pallet-computing_workers/try-runtime",
 ]

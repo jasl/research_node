@@ -38,10 +38,10 @@ use crate::{
 use frame_support::{
 	dispatch::{DispatchError, DispatchResult},
 	ensure,
-	traits::{Currency, ExistenceRequirement, Get, ReservableCurrency, UnixTime},
+	traits::{Currency, ExistenceRequirement, Get, ReservableCurrency, UnixTime, Randomness},
 	transactional,
 };
-use scale_codec::Encode;
+use scale_codec::{Decode, Encode};
 use sp_core::{sr25519, H256};
 use sp_io::crypto::sr25519_verify;
 use sp_runtime::{traits::Zero, SaturatedConversion, Saturating};
@@ -80,6 +80,9 @@ mod pallet {
 
 		/// Time used for verify attestation
 		type UnixTime: UnixTime;
+
+		/// Something that provides randomness in the runtime.
+		type Randomness: Randomness<Self::Hash, Self::BlockNumber>;
 
 		/// A handler for manging worker slashing
 		type WorkerLifecycleHooks: WorkerLifecycleHooks<Self::AccountId, BalanceOf<Self>>;
@@ -124,12 +127,12 @@ mod pallet {
 	/// Storage for flip set, this is for online checking
 	#[pallet::storage]
 	#[pallet::getter(fn flip_set)]
-	pub type FlipSet<T: Config> = CountedStorageMap<_, Identity, T::AccountId, ()>;
+	pub type FlipSet<T: Config> = CountedStorageMap<_, Identity, T::AccountId, T::BlockNumber>;
 
 	/// Storage for flop set, this is for online checking
 	#[pallet::storage]
 	#[pallet::getter(fn flop_set)]
-	pub type FlopSet<T: Config> = CountedStorageMap<_, Identity, T::AccountId, ()>;
+	pub type FlopSet<T: Config> = CountedStorageMap<_, Identity, T::AccountId, T::BlockNumber>;
 
 	/// Storage for stage of flip-flop, this is used for online checking
 	#[pallet::storage]
@@ -204,10 +207,10 @@ mod pallet {
 		AttestationMethodChanged,
 		/// Attestation expired
 		AttestationExpired,
-		/// Intermission
-		Intermission,
 		/// AlreadySentHeartbeat
 		AlreadySentHeartbeat,
+		/// Too early to send heartbeat
+		TooEarly,
 	}
 
 	#[pallet::hooks]
@@ -297,9 +300,9 @@ mod pallet {
 		// TODO: #[pallet::weight(<T as Config>::WeightInfo::register())]
 		#[pallet::weight(0)]
 		#[transactional]
-		pub fn register(origin: OriginFor<T>, initial_deposit: BalanceOf<T>, worker: T::AccountId) -> DispatchResult {
+		pub fn register(origin: OriginFor<T>, worker: T::AccountId, initial_deposit: BalanceOf<T>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-			Self::do_register(who, initial_deposit, worker)
+			Self::do_register(who, worker, initial_deposit)
 		}
 
 		#[pallet::weight(0)]
@@ -400,7 +403,7 @@ mod pallet {
 }
 
 impl<T: Config> Pallet<T> {
-	fn do_register(owner: T::AccountId, initial_deposit: BalanceOf<T>, worker: T::AccountId) -> DispatchResult {
+	fn do_register(owner: T::AccountId, worker: T::AccountId, initial_deposit: BalanceOf<T>) -> DispatchResult {
 		ensure!(owner != worker, Error::<T>::InvalidOwner);
 
 		let initial_reserved_deposit = T::ReservedDeposit::get();
@@ -659,8 +662,9 @@ impl<T: Config> Pallet<T> {
 			}
 		}
 
-		// Check whether attestation expired, if yes, treat as force offline
 		let current_block = frame_system::Pallet::<T>::block_number();
+
+		// Check whether attestation expired, if yes, treat as force offline
 		if current_block - worker_info.attested_at > T::AttestationValidityDuration::get().into() {
 			T::WorkerLifecycleHooks::after_attestation_expired(worker);
 
@@ -711,54 +715,44 @@ impl<T: Config> Pallet<T> {
 			return Ok(())
 		}
 
-		Self::flipflop(worker)?;
+		let stage = FlipOrFlop::<T>::get();
+		match stage {
+			FlipFlopStage::Flip => {
+				let Some(flip) = FlipSet::<T>::get(worker) else {
+					return Err(Error::<T>::AlreadySentHeartbeat.into())
+				};
+				ensure!(flip <= current_block, Error::<T>::TooEarly);
+
+				FlipSet::<T>::remove(worker);
+				FlopSet::<T>::insert(worker, Self::generate_next_heartbeat_block(current_block));
+			},
+			FlipFlopStage::Flop => {
+				let Some(flop) = FlopSet::<T>::get(worker) else {
+					return Err(Error::<T>::AlreadySentHeartbeat.into())
+				};
+				ensure!(flop <= current_block, Error::<T>::TooEarly);
+
+				FlopSet::<T>::remove(worker);
+				FlipSet::<T>::insert(worker, Self::generate_next_heartbeat_block(current_block));
+			},
+			_ => return Err(Error::<T>::TooEarly.into()),
+		}
 
 		Self::deposit_event(Event::<T>::HeartbeatReceived { worker: worker.clone() });
 
 		Ok(())
 	}
 
-	fn flipflop(worker: &T::AccountId) -> DispatchResult {
-		let stage = FlipOrFlop::<T>::get();
-		match stage {
-			FlipFlopStage::Flip => {
-				let Some(_flip) = FlipSet::<T>::take(worker) else {
-					return Err(Error::<T>::AlreadySentHeartbeat.into())
-				};
-
-				FlopSet::<T>::insert(worker, ());
-
-				Self::deposit_event(Event::<T>::HeartbeatReceived { worker: worker.clone() });
-				Ok(())
-			},
-			FlipFlopStage::Flop => {
-				let Some(_flop) = FlopSet::<T>::take(worker) else {
-					return Err(Error::<T>::AlreadySentHeartbeat.into());
-				};
-
-				FlipSet::<T>::insert(worker, ());
-
-				Self::deposit_event(Event::<T>::HeartbeatReceived { worker: worker.clone() });
-				Ok(())
-			},
-			_ => Err(Error::<T>::Intermission.into()),
-		}
-	}
-
 	fn flipflop_for_online(worker: &T::AccountId) {
+		let current_block = frame_system::Pallet::<T>::block_number();
+
 		let stage = FlipOrFlop::<T>::get();
 		match stage {
-			FlipFlopStage::Flip => {
-				FlopSet::<T>::insert(worker, ());
+			FlipFlopStage::Flip | FlipFlopStage::FlopToFlip => {
+				FlopSet::<T>::insert(worker, Self::generate_next_heartbeat_block(current_block));
 			},
-			FlipFlopStage::Flop => {
-				FlipSet::<T>::insert(worker, ());
-			},
-			FlipFlopStage::FlipToFlop => {
-				FlipSet::<T>::insert(worker, ());
-			},
-			FlipFlopStage::FlopToFlip => {
-				FlopSet::<T>::insert(worker, ());
+			FlipFlopStage::Flop | FlipFlopStage::FlipToFlop => {
+				FlipSet::<T>::insert(worker, Self::generate_next_heartbeat_block(current_block));
 			},
 		}
 	}
@@ -833,6 +827,30 @@ impl<T: Config> Pallet<T> {
 		ensure!(attestation.method() == worker_attestation_method, Error::<T>::AttestationMethodChanged);
 
 		Ok(())
+	}
+
+	/// This function copied from pallet_lottery
+	///
+	/// Generate a random number from a given seed.
+	/// Note that there is potential bias introduced by using modulus operator.
+	/// You should call this function with different seed values until the random
+	/// number lies within `u32::MAX - u32::MAX % n`.
+	/// TODO: deal with randomness freshness
+	/// https://github.com/paritytech/substrate/issues/8311
+	fn generate_random_number(seed: u32) -> u32 {
+		let (random_seed, _) = T::Randomness::random(&(b"computing_workers", seed).encode());
+		let random_number = <u32>::decode(&mut random_seed.as_ref())
+			.expect("secure hashes should always be bigger than u32; qed");
+		// log!(info, "Random number: {}", random_number);
+
+		random_number
+	}
+
+	fn generate_next_heartbeat_block(current_block: T::BlockNumber) -> T::BlockNumber {
+		let duration = T::CollectingHeartbeatsDuration::get();
+		let random_delay= Self::generate_random_number(0) % (duration * 4 / 5); // Give ~20% room
+
+		current_block - (current_block % duration.into()) + (duration + random_delay).into()
 	}
 }
 

@@ -5,6 +5,7 @@ impl pallet_computing_workers::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;
 	type UnixTime = Timestamp;
+	type Randomness = RandomnessCollectiveFlip;
 	type WorkerLifecycleHooks = FakeComputing;
 	type HandleUnresponsivePerBlockLimit = ConstU32<100>;
 	type ReservedDeposit = ConstU128<{ 100 * UNITS }>;
