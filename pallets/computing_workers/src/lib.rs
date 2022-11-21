@@ -673,7 +673,7 @@ impl<T: Config> Pallet<T> {
 		}
 
 		// Check the worker's reserved money
-		if <T as Config>::Currency::reserved_balance(&who) < T::ReservedDeposit::get() {
+		if <T as Config>::Currency::reserved_balance(who) < T::ReservedDeposit::get() {
 			T::WorkerLifecycleHooks::after_insufficient_reserved_funds(who);
 
 			FlipSet::<T>::remove(who);

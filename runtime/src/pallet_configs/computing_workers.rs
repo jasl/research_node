@@ -5,7 +5,7 @@ impl pallet_computing_workers::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;
 	type UnixTime = Timestamp;
-	type WorkerLifecycleHooks = ();
+	type WorkerLifecycleHooks = FakeComputing;
 	type HandleUnresponsivePerBlockLimit = ConstU32<100>;
 	type ReservedDeposit = ConstU128<{ 100 * UNITS }>;
 	type CollectingHeartbeatsDuration = ConstU32<10>; // TODO: ConstU32<240>; // 240 block * 6 sec / 60 sec = 24 min

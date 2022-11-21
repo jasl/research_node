@@ -1,4 +1,4 @@
-use crate as pallet_computing_workers;
+use crate as pallet_fake_computing;
 
 use frame_support::{
 	assert_ok,
@@ -32,6 +32,7 @@ frame_support::construct_runtime!(
 		Balances: pallet_balances,
 		Timestamp: pallet_timestamp,
 		ComputingWorkers: pallet_computing_workers,
+		FakeComputing: pallet_fake_computing,
 	}
 );
 
@@ -85,13 +86,19 @@ impl pallet_computing_workers::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;
 	type UnixTime = Timestamp;
-	type WorkerLifecycleHooks = ();
+	type WorkerLifecycleHooks = FakeComputing;
 	type HandleUnresponsivePerBlockLimit = ConstU32<3>;
 	type ReservedDeposit = ConstU128<{ 100 * DOLLARS }>;
 	type CollectingHeartbeatsDuration = ConstU32<6>;
 	type AttestationValidityDuration = ConstU32<12>;
 	type DisallowOptOutAttestation = ConstBool<false>;
 	type DisallowNonTEEAttestation = ConstBool<false>;
+}
+
+impl pallet_fake_computing::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+	type Currency = Balances;
+	type WorkerManageable = ComputingWorkers;
 }
 
 // Build genesis storage according to the mock runtime.

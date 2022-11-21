@@ -1,5 +1,5 @@
 #[allow(unused)]
-use crate::{mock::*, types::*, Error};
+use crate::{mock::*, types::*, Error, Event};
 #[allow(unused)]
 use frame_support::{assert_err, assert_noop, assert_ok};
 #[allow(unused)]

@@ -166,6 +166,7 @@ construct_runtime!(
 		ComputingWorkers: pallet_computing_workers::{Pallet, Call, Storage, Event<T>} = 101,
 
 		// Non-permanent
+		FakeComputing: pallet_fake_computing::{Pallet, Call, Event<T>, Storage} = 254,
 		Sudo: pallet_sudo::{Pallet, Call, Config<T>, Event<T>, Storage} = 255,
 	}
 );
