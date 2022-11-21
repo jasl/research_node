@@ -1,11 +1,6 @@
 use crate::*;
-use frame_support::{
-	parameter_types,
-	traits::AsEnsureOriginWithArg,
-};
-use frame_system::{
-	EnsureRoot, EnsureSigned,
-};
+use frame_support::{parameter_types, traits::AsEnsureOriginWithArg};
+use frame_system::{EnsureRoot, EnsureSigned};
 
 parameter_types! {
 	pub const CollectionDeposit: Balance = 10 * UNITS; // 10 UNIT deposit to create uniques class

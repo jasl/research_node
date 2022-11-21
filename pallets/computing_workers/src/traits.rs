@@ -1,17 +1,11 @@
 use crate::types::{OnlinePayload, WorkerInfo};
-use scale_codec::MaxEncodedLen;
-use sp_std::fmt::Debug;
-use sp_runtime::{
-	traits::MaybeSerializeDeserialize,
-	FixedPointOperand,
-};
 use frame_support::{
 	dispatch::DispatchResult,
-	traits::{
-		Imbalance,
-		tokens::Balance
-	}
+	traits::{tokens::Balance, Imbalance},
 };
+use scale_codec::MaxEncodedLen;
+use sp_runtime::{traits::MaybeSerializeDeserialize, FixedPointOperand};
+use sp_std::fmt::Debug;
 
 /// Trait describing something that implements a hook for any operations to perform when a staker is
 /// slashed.

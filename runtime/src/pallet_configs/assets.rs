@@ -1,13 +1,9 @@
 use crate::*;
 use frame_support::{
 	parameter_types,
-	traits::{
-		AsEnsureOriginWithArg, ConstU32,
-	}
+	traits::{AsEnsureOriginWithArg, ConstU32},
 };
-use frame_system::{
-	EnsureRoot, EnsureSigned,
-};
+use frame_system::{EnsureRoot, EnsureSigned};
 
 parameter_types! {
 	pub const AssetDeposit: Balance = 10 * UNITS; // 10 UNITS deposit to create fungible asset class

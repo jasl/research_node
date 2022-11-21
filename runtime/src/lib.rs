@@ -49,9 +49,7 @@ pub use sp_runtime::{Perbill, Permill};
 pub use node_primitives::{
 	constants,
 	opaque::{self, Header},
-	types::{
-		AccountId, AssetId, Balance, CollectionId, ItemId, BlockNumber, Hash, Index, Moment, Signature
-	},
+	types::{AccountId, AssetId, Balance, BlockNumber, CollectionId, Hash, Index, ItemId, Moment, Signature},
 };
 
 mod pallet_configs;
@@ -96,9 +94,7 @@ impl Contains<RuntimeCall> for BaseCallFilter {
 }
 
 /// The type used to represent the kinds of proxying allowed.
-#[derive(
-	Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Encode, Decode, RuntimeDebug, MaxEncodedLen, TypeInfo,
-)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Encode, Decode, RuntimeDebug, MaxEncodedLen, TypeInfo)]
 pub enum ProxyType {
 	Any,
 	NonTransfer,

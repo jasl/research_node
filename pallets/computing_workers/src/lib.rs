@@ -29,16 +29,16 @@ macro_rules! log {
 pub use pallet::*;
 
 use crate::{
-	types::{
-		Attestation, AttestationError, AttestationMethod, FlipFlopStage, OnlinePayload, VerifiedAttestation, WorkerInfo,
-		WorkerStatus,
-	},
 	traits::{WorkerLifecycleHooks, WorkerManageable},
+	types::{
+		Attestation, AttestationError, AttestationMethod, FlipFlopStage, OnlinePayload, VerifiedAttestation,
+		WorkerInfo, WorkerStatus,
+	},
 };
 use frame_support::{
 	dispatch::{DispatchError, DispatchResult},
 	ensure,
-	traits::{Currency, ExistenceRequirement, Get, ReservableCurrency, UnixTime, Randomness},
+	traits::{Currency, ExistenceRequirement, Get, Randomness, ReservableCurrency, UnixTime},
 	transactional,
 };
 use scale_codec::{Decode, Encode};
@@ -48,12 +48,10 @@ use sp_runtime::{traits::Zero, SaturatedConversion, Saturating};
 use sp_std::prelude::*;
 
 type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
-type PositiveImbalanceOf<T> = <<T as Config>::Currency as Currency<
-	<T as frame_system::Config>::AccountId,
->>::PositiveImbalance;
-type NegativeImbalanceOf<T> = <<T as Config>::Currency as Currency<
-	<T as frame_system::Config>::AccountId,
->>::NegativeImbalance;
+type PositiveImbalanceOf<T> =
+	<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::PositiveImbalance;
+type NegativeImbalanceOf<T> =
+	<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::NegativeImbalance;
 
 #[frame_support::pallet]
 mod pallet {
@@ -471,16 +469,10 @@ impl<T: Config> Pallet<T> {
 		let mut worker_info = Workers::<T>::get(&worker).ok_or(Error::<T>::NotExists)?;
 		Self::ensure_worker(&worker, &worker_info)?;
 		match worker_info.status {
-			WorkerStatus::Registered |
-			WorkerStatus::Offline => {}
-			_ => {
-				return Err(Error::<T>::WrongStatus.into())
-			}
+			WorkerStatus::Registered | WorkerStatus::Offline => {},
+			_ => return Err(Error::<T>::WrongStatus.into()),
 		}
-		ensure!(
-			worker_info.spec_version <= payload.spec_version,
-			Error::<T>::CanNotDowngrade
-		);
+		ensure!(worker_info.spec_version <= payload.spec_version, Error::<T>::CanNotDowngrade);
 
 		// Check reserved money
 		let reserved = <T as Config>::Currency::reserved_balance(&worker);
@@ -488,10 +480,7 @@ impl<T: Config> Pallet<T> {
 			// Try add reserved from free
 			let free = <T as Config>::Currency::free_balance(&worker);
 			let should_add_reserve = worker_info.reserved.saturating_sub(reserved);
-			ensure!(
-				free >= should_add_reserve,
-				Error::<T>::InsufficientReserved
-			);
+			ensure!(free >= should_add_reserve, Error::<T>::InsufficientReserved);
 			<T as Config>::Currency::reserve(&worker, should_add_reserve)?;
 		}
 
@@ -630,11 +619,8 @@ impl<T: Config> Pallet<T> {
 		}
 
 		match worker_info.status {
-			WorkerStatus::Online |
-			WorkerStatus::RequestingOffline => {},
-			_ => {
-				return Err(Error::<T>::WrongStatus.into())
-			},
+			WorkerStatus::Online | WorkerStatus::RequestingOffline => {},
+			_ => return Err(Error::<T>::WrongStatus.into()),
 		}
 
 		T::WorkerLifecycleHooks::before_offline(&worker, true);
@@ -653,11 +639,8 @@ impl<T: Config> Pallet<T> {
 		let worker_info = Workers::<T>::get(worker).ok_or(Error::<T>::NotExists)?;
 		Self::ensure_worker(worker, &worker_info)?;
 		match worker_info.status {
-			WorkerStatus::Online |
-			WorkerStatus::RequestingOffline => {},
-			_ => {
-				return Err(Error::<T>::NotOnline.into())
-			}
+			WorkerStatus::Online | WorkerStatus::RequestingOffline => {},
+			_ => return Err(Error::<T>::NotOnline.into()),
 		}
 
 		let current_block = frame_system::Pallet::<T>::block_number();
@@ -680,8 +663,8 @@ impl<T: Config> Pallet<T> {
 		}
 
 		// Check whether can offline now, We ignore error here
-		if worker_info.status == WorkerStatus::RequestingOffline &&
-			T::WorkerLifecycleHooks::can_offline(worker).is_ok() {
+		if worker_info.status == WorkerStatus::RequestingOffline && T::WorkerLifecycleHooks::can_offline(worker).is_ok()
+		{
 			T::WorkerLifecycleHooks::before_offline(worker, false);
 
 			FlipSet::<T>::remove(worker);
@@ -837,8 +820,8 @@ impl<T: Config> Pallet<T> {
 	/// https://github.com/paritytech/substrate/issues/8311
 	fn generate_random_number(seed: u32) -> u32 {
 		let (random_seed, _) = T::Randomness::random(&(b"computing_workers", seed).encode());
-		let random_number = <u32>::decode(&mut random_seed.as_ref())
-			.expect("secure hashes should always be bigger than u32; qed");
+		let random_number =
+			<u32>::decode(&mut random_seed.as_ref()).expect("secure hashes should always be bigger than u32; qed");
 		// log!(info, "Random number: {}", random_number);
 
 		random_number
@@ -846,7 +829,7 @@ impl<T: Config> Pallet<T> {
 
 	fn generate_next_heartbeat_block(current_block: T::BlockNumber) -> T::BlockNumber {
 		let duration = T::CollectingHeartbeatsDuration::get();
-		let random_delay= Self::generate_random_number(0) % (duration * 4 / 5); // Give ~20% room
+		let random_delay = Self::generate_random_number(0) % (duration * 4 / 5); // Give ~20% room
 
 		current_block - (current_block % duration.into()) + (duration + random_delay).into()
 	}
@@ -872,11 +855,8 @@ impl<T: Config> WorkerManageable<T::AccountId, T::BlockNumber> for Pallet<T> {
 	fn offline(worker: &T::AccountId) -> DispatchResult {
 		let mut worker_info = Workers::<T>::get(worker).ok_or(Error::<T>::NotExists)?;
 		match worker_info.status {
-			WorkerStatus::Online |
-			WorkerStatus::RequestingOffline => {},
-			_ => {
-				return Err(Error::<T>::WrongStatus.into())
-			},
+			WorkerStatus::Online | WorkerStatus::RequestingOffline => {},
+			_ => return Err(Error::<T>::WrongStatus.into()),
 		}
 
 		worker_info.status = WorkerStatus::Offline;
