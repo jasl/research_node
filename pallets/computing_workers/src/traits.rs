@@ -40,13 +40,17 @@ pub trait WorkerLifecycleHooks<AccountId, Balance> {
 	/// Can use for if interest in payload's custom field
 	fn after_refresh_attestation(worker: &AccountId, payload: &OnlinePayload);
 
+	/// A hook after the worker transited to requesting offline status,
+	/// can use for add additional business logic, e.g. stop assigning job
+	fn after_requesting_offline(worker: &AccountId);
+
 	/// A hook after the worker transited to attestation expired status,
 	/// can use for add additional business logic, e.g. stop assigning job, do slash
 	fn after_attestation_expired(worker: &AccountId);
 
 	/// A hook after the worker transited to requesting offline status,
 	/// can use for add additional business logic, e.g. stop assigning job
-	fn after_requesting_offline(worker: &AccountId);
+	fn after_insufficient_reserved_funds(worker: &AccountId);
 }
 
 impl<AccountId, Balance> WorkerLifecycleHooks<AccountId, Balance> for () {
@@ -66,19 +70,23 @@ impl<AccountId, Balance> WorkerLifecycleHooks<AccountId, Balance> for () {
 		// Do nothing
 	}
 
+	fn after_unresponsive(_: &AccountId) {
+		// Do nothing
+	}
+
 	fn after_refresh_attestation(_: &AccountId, _: &OnlinePayload) {
 		// Do nothing
 	}
 
-	fn after_unresponsive(_: &AccountId) {
+	fn after_requesting_offline(_: &AccountId) {
 		// Do nothing
 	}
 
 	fn after_attestation_expired(_: &AccountId) {
 		// Do nothing
 	}
-	
-	fn after_requesting_offline(_: &AccountId) {
+
+	fn after_insufficient_reserved_funds(_: &AccountId) {
 		// Do nothing
 	}
 }

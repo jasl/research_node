@@ -153,10 +153,12 @@ mod pallet {
 		Offline { worker: T::AccountId, force: bool },
 		/// The worker send heartbeat successfully
 		HeartbeatReceived { worker: T::AccountId },
-		/// The work refresh attestation successfully
+		/// The worker refresh its attestation successfully
 		AttestationRefreshed { worker: T::AccountId },
-		/// The work refresh attestation expired
+		/// The worker's attestation expired
 		AttestationExpired { worker: T::AccountId },
+		/// The worker's reserved money below requirement
+		InsufficientReservedFunds { worker: T::AccountId },
 	}
 
 	// Errors inform users that something went wrong.
@@ -667,6 +669,23 @@ impl<T: Config> Pallet<T> {
 			});
 
 			Self::deposit_event(Event::<T>::Offline { worker: who.clone(), force: false });
+			return Ok(())
+		}
+
+		// Check the worker's reserved money
+		if <T as Config>::Currency::reserved_balance(&who) < T::ReservedDeposit::get() {
+			T::WorkerLifecycleHooks::after_insufficient_reserved_funds(who);
+
+			FlipSet::<T>::remove(who);
+			FlopSet::<T>::remove(who);
+			Workers::<T>::mutate(who, |worker_info| {
+				if let Some(mut info) = worker_info.as_mut() {
+					info.status = WorkerStatus::Offline;
+				}
+			});
+
+			Self::deposit_event(Event::<T>::InsufficientReservedFunds { worker: who.clone() });
+			Self::deposit_event(Event::<T>::Offline { worker: who.clone(), force: true });
 			return Ok(())
 		}
 
