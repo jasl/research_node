@@ -11,13 +11,10 @@ mod mock;
 #[cfg(test)]
 mod tests;
 
-#[cfg(feature = "runtime-benchmarks")]
-mod benchmarking;
-
 /// The log target of this pallet.
 pub const LOG_TARGET: &str = "runtime::fake_computing";
 
-// syntactic sugar for logging.
+// Syntactic sugar for logging.
 #[macro_export]
 macro_rules! log {
 	($level:tt, $patter:expr $(, $values:expr)* $(,)?) => {

@@ -18,7 +18,6 @@ log = { version = "0.4.17", default-features = false }
 scale-codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false, features = ["derive"] }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 
-frame-benchmarking = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false, optional = true }
 frame-support = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
 frame-system = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
 
@@ -39,18 +38,12 @@ default = ["std"]
 std = [
 	"log/std",
 	"scale-codec/std",
-	"frame-benchmarking?/std",
 	"frame-support/std",
 	"frame-system/std",
 	"scale-info/std",
 	"pallet-balances/std",
 	"pallet-randomness-collective-flip/std",
 	"pallet-computing_workers/std",
-]
-runtime-benchmarks = [
-	"frame-benchmarking/runtime-benchmarks",
-	"pallet-balances/runtime-benchmarks",
-	"pallet-computing_workers/runtime-benchmarks",
 ]
 try-runtime = [
 	"frame-support/try-runtime",

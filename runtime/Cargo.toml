@@ -130,7 +130,6 @@ runtime-benchmarks = [
 	"pallet-assets/runtime-benchmarks",
 	"pallet-uniques/runtime-benchmarks",
 	"pallet-computing_workers/runtime-benchmarks",
-	"pallet-fake_computing/runtime-benchmarks",
 ]
 try-runtime = [
 	"frame-try-runtime/try-runtime",

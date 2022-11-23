@@ -2,6 +2,7 @@
 
 pub mod traits;
 pub mod types;
+pub mod weights;
 
 #[cfg(test)]
 mod mock;
@@ -15,7 +16,7 @@ mod benchmarking;
 /// The log target of this pallet.
 pub const LOG_TARGET: &str = "runtime::computing_workers";
 
-// syntactic sugar for logging.
+// Syntactic sugar for logging.
 #[macro_export]
 macro_rules! log {
 	($level:tt, $patter:expr $(, $values:expr)* $(,)?) => {
@@ -113,7 +114,7 @@ mod pallet {
 		#[pallet::constant]
 		type DisallowNonTEEAttestation: Get<bool>;
 
-		// TODO: type WeightInfo: WeightInfo;
+		// type WeightInfo: WeightInfo;
 	}
 
 	/// Storage for computing_workers.
