@@ -1,7 +1,7 @@
 [package]
 name = "pallet-fake_computing"
 version = "0.0.1-dev"
-description = "Substrate pallet to providing fake computing jobs, this is a test pallet for pallet-computing_workers"
+description = "Substrate pallet to providing fake computing jobs, this is a test-only pallet for pallet-computing_workers"
 authors = ["Jasl <https://github.com/jasl>"]
 homepage = "https://github.com/jasl/research-node"
 repository = "https://github.com/jasl/research-node"
