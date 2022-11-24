@@ -7,11 +7,19 @@ use frame_support::{
 use sp_runtime::RuntimeDebug;
 use sp_std::prelude::*;
 
+// A hack that allow to make mock payload,
+// cause we can't generate private key on benchmark environment
+#[cfg(feature = "runtime-benchmarks")]
+pub const ATTESTATION_ISSUED_PERIOD_OF_VALIDITY: u64 = u64::MAX;
+
+#[cfg(not(feature = "runtime-benchmarks"))]
 pub const ATTESTATION_ISSUED_PERIOD_OF_VALIDITY: u64 = 60 * 60 * 1000; // 1 hour
+
 pub const MAX_ATTESTATION_PAYLOAD_SIZE: u32 = 64 * 1000; // limit to 64KB
 pub const MAX_CUSTOM_PAYLOAD_SIZE: u32 = 64 * 1000; // limit to 64KB
 
 pub type AttestationPayload = BoundedVec<u8, ConstU32<MAX_ATTESTATION_PAYLOAD_SIZE>>;
+pub type ExtraOnlinePayload = BoundedVec<u8, ConstU32<MAX_CUSTOM_PAYLOAD_SIZE>>;
 
 #[derive(Encode, Decode, Clone, PartialEq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 pub struct NonTEEAttestation {
@@ -86,7 +94,7 @@ fn verify_non_tee_attestation(attestation: &NonTEEAttestation, now: u64) -> Resu
 #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 pub struct OnlinePayload {
 	pub spec_version: u32,
-	pub extra: BoundedVec<u8, ConstU32<MAX_CUSTOM_PAYLOAD_SIZE>>,
+	pub extra: ExtraOnlinePayload,
 }
 
 /// Worker's status

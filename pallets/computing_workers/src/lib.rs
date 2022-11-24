@@ -83,9 +83,6 @@ mod pallet {
 		/// Something that provides randomness in the runtime.
 		type Randomness: Randomness<Self::Hash, Self::BlockNumber>;
 
-		/// A handler for manging worker slashing
-		type WorkerLifecycleHooks: WorkerLifecycleHooks<Self::AccountId, BalanceOf<Self>>;
-
 		/// Max number of moving unresponsive workers to pending offline workers queue
 		#[pallet::constant]
 		type HandleUnresponsivePerBlockLimit: Get<u32>;
@@ -115,6 +112,9 @@ mod pallet {
 		type DisallowNonTEEAttestation: Get<bool>;
 
 		// type WeightInfo: WeightInfo;
+
+		/// A handler for manging worker slashing
+		type WorkerLifecycleHooks: WorkerLifecycleHooks<Self::AccountId, BalanceOf<Self>>;
 	}
 
 	/// Storage for computing_workers.
@@ -486,32 +486,11 @@ impl<T: Config> Pallet<T> {
 		}
 
 		Self::ensure_attestation_provided(&attestation)?;
-
-		let mut attestation_method: Option<AttestationMethod> = None;
-		if let Some(attestation) = attestation {
-			attestation_method = Some(attestation.method());
-			let verified = Self::verify_attestation(&attestation)?;
-
-			let encode_worker = T::AccountId::encode(&worker);
-			let h256_worker = H256::from_slice(&encode_worker);
-			let worker_public_key = sr25519::Public::from_h256(h256_worker);
-
-			let encoded_message = Encode::encode(&payload);
-
-			let Some(signature) = sr25519::Signature::from_slice(verified.payload()) else {
-				return Err(Error::<T>::CanNotVerifyPayload.into())
-			};
-
-			ensure!(
-				sr25519_verify(&signature, &encoded_message, &worker_public_key),
-				Error::<T>::PayloadSignatureMismatched
-			);
-		}
-
+		Self::verify_online_payload(&worker, &payload, &attestation)?;
 		T::WorkerLifecycleHooks::can_online(&worker, &payload)?;
 
 		worker_info.spec_version = payload.spec_version;
-		worker_info.attestation_method = attestation_method;
+		worker_info.attestation_method = attestation.map(|a| a.method());
 		worker_info.attested_at = frame_system::Pallet::<T>::block_number();
 		worker_info.status = WorkerStatus::Online;
 
@@ -541,25 +520,7 @@ impl<T: Config> Pallet<T> {
 		ensure!(worker_info.spec_version == payload.spec_version, Error::<T>::SoftwareChanged);
 
 		Self::ensure_attestation_method(&attestation, &worker_info)?;
-
-		if let Some(attestation) = attestation {
-			let verified = Self::verify_attestation(&attestation)?;
-
-			let encode_worker = T::AccountId::encode(&worker);
-			let h256_worker = H256::from_slice(&encode_worker);
-			let worker_public_key = sr25519::Public::from_h256(h256_worker);
-
-			let encoded_message = Encode::encode(&payload);
-
-			let Some(signature) = sr25519::Signature::from_slice(verified.payload()) else {
-				return Err(Error::<T>::CanNotVerifyPayload.into())
-			};
-
-			ensure!(
-				sr25519_verify(&signature, &encoded_message, &worker_public_key),
-				Error::<T>::PayloadSignatureMismatched
-			);
-		}
+		Self::verify_online_payload(&worker, &payload, &attestation)?;
 
 		worker_info.attested_at = frame_system::Pallet::<T>::block_number();
 		Workers::<T>::insert(&worker, worker_info);
@@ -759,6 +720,35 @@ impl<T: Config> Pallet<T> {
 			Err(AttestationError::Expired) => Err(Error::<T>::ExpiredAttestation.into()),
 			Err(AttestationError::Invalid) => Err(Error::<T>::InvalidAttestation.into()),
 		}
+	}
+
+	fn verify_online_payload(
+		worker: &T::AccountId,
+		payload: &OnlinePayload,
+		attestation: &Option<Attestation>,
+	) -> DispatchResult {
+		let Some(attestation) = attestation else {
+			return Ok(())
+		};
+
+		let verified = Self::verify_attestation(attestation)?;
+
+		let encode_worker = T::AccountId::encode(worker);
+		let h256_worker = H256::from_slice(&encode_worker);
+		let worker_public_key = sr25519::Public::from_h256(h256_worker);
+
+		let encoded_message = Encode::encode(payload);
+
+		let Some(signature) = sr25519::Signature::from_slice(verified.payload()) else {
+			return Err(Error::<T>::CanNotVerifyPayload.into())
+		};
+
+		ensure!(
+			sr25519_verify(&signature, &encoded_message, &worker_public_key),
+			Error::<T>::PayloadSignatureMismatched
+		);
+
+		Ok(())
 	}
 
 	fn ensure_owner(

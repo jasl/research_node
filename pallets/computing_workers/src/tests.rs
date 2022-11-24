@@ -67,6 +67,6 @@ fn deregister_works() {
 		assert_ok!(ComputingWorkers::deregister(RuntimeOrigin::signed(ALICE), ALICE_WORKER));
 
 		assert_eq!(Balances::free_balance(ALICE), 101 * DOLLARS);
-		assert!(!Account::<Test>::contains_key(ALICE_WORKER));
+		assert_eq!(Account::<Test>::contains_key(ALICE_WORKER), false);
 	});
 }

@@ -89,13 +89,13 @@ impl pallet_computing_workers::Config for Test {
 	type Currency = Balances;
 	type UnixTime = Timestamp;
 	type Randomness = RandomnessCollectiveFlip;
-	type WorkerLifecycleHooks = ();
 	type HandleUnresponsivePerBlockLimit = ConstU32<3>;
 	type ReservedDeposit = ConstU128<{ 100 * DOLLARS }>;
 	type CollectingHeartbeatsDuration = ConstU32<6>;
 	type AttestationValidityDuration = ConstU32<12>;
 	type DisallowOptOutAttestation = ConstBool<false>;
 	type DisallowNonTEEAttestation = ConstBool<false>;
+	type WorkerLifecycleHooks = ();
 }
 
 // Build genesis storage according to the mock runtime.

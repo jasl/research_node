@@ -171,11 +171,12 @@ function createSubstrateApi(rpcUrl: string): ApiPromise | null {
     types: {
       Address: "AccountId",
       LookupSource: "AccountId",
+      AttestationPayload: "BoundedVec<u8, 64000>",
+      ExtraOnlinePayload: "BoundedVec<u8, 64000>",
       OnlinePayload: {
         spec_version: "u32",
         extra: "BoundedVec<u8, 64000>"
       },
-      AttestationPayload: "BoundedVec<u8, 64000>",
       NonTEEAttestation: {
         issued_at: "u64",
         payload: "AttestationPayload"
@@ -451,6 +452,7 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
 
     const payload = api.createType("OnlinePayload", {
       "spec_version": SPEC_VERSION,
+      "payload": api.createType("AttestationPayload", [])
     });
     const payloadSig = window.workerKeyPair.sign(payload.toU8a());
     const attestation = createAttestation(api, u8aToHex(payloadSig));
