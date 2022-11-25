@@ -26,7 +26,7 @@ pub trait WorkerLifecycleHooks<AccountId, Balance> {
 	/// when `force` is true, means it is the user force to do this, it may need to slash
 	fn before_offline(worker: &AccountId, force: bool);
 
-	/// A hook after the worker transited to unresponsive status,
+	/// A hook after the worker unresponsive,
 	/// can use for add additional business logic, e.g. stop assigning job, do slash
 	fn after_unresponsive(worker: &AccountId);
 
@@ -38,11 +38,15 @@ pub trait WorkerLifecycleHooks<AccountId, Balance> {
 	/// can use for add additional business logic, e.g. stop assigning job
 	fn after_requesting_offline(worker: &AccountId);
 
-	/// A hook after the worker transited to attestation expired status,
+	/// A hook after the worker force offline by attestation expired,
 	/// can use for add additional business logic, e.g. stop assigning job, do slash
 	fn after_attestation_expired(worker: &AccountId);
 
-	/// A hook after the worker transited to requesting offline status,
+	/// A hook after the worker force offline by worker implementation blocked,
+	/// can use for add additional business logic, e.g. stop assigning job, do slash
+	fn after_impl_blocked(worker: &AccountId);
+
+	/// A hook after the worker force offline by insufficient reserved funds,
 	/// can use for add additional business logic, e.g. stop assigning job
 	fn after_insufficient_reserved_funds(worker: &AccountId);
 }
@@ -77,6 +81,10 @@ impl<AccountId, Balance> WorkerLifecycleHooks<AccountId, Balance> for () {
 	}
 
 	fn after_attestation_expired(_: &AccountId) {
+		// Do nothing
+	}
+
+	fn after_impl_blocked(_: &AccountId) {
 		// Do nothing
 	}
 

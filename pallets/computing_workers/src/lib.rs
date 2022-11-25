@@ -32,8 +32,8 @@ pub use pallet::*;
 use crate::{
 	traits::{WorkerLifecycleHooks, WorkerManageable},
 	types::{
-		Attestation, AttestationError, AttestationMethod, FlipFlopStage, ImplName, ImplVersion, OnlinePayload,
-		VerifiedAttestation, WorkerInfo, WorkerStatus,
+		Attestation, AttestationError, AttestationMethod, FlipFlopStage, WorkerImplName, WorkerImplVersion, OnlinePayload,
+		VerifiedAttestation, WorkerInfo, WorkerStatus, WorkerImplPermission, WorkerImplHash,
 	},
 	weights::WeightInfo,
 };
@@ -112,12 +112,33 @@ mod pallet {
 		#[pallet::constant]
 		type DisallowNonTEEAttestation: Get<bool>;
 
+		/// Validate worker's implementation
+		#[pallet::constant]
+		type ValidateWorkerImpl: Get<bool>;
+
+		/// Validate worker's implementation's hash
+		#[pallet::constant]
+		type ValidateWorkerImplHash: Get<bool>;
+
+		/// Origin used to govern the pallet
+		type GovernanceOrigin: EnsureOrigin<Self::RuntimeOrigin>;
+
 		/// Weight information for extrinsics in this pallet.
 		type WeightInfo: WeightInfo;
 
 		/// A handler for manging worker slashing
 		type WorkerLifecycleHooks: WorkerLifecycleHooks<Self::AccountId, BalanceOf<Self>>;
 	}
+
+	/// Storage for worker's implementations permission.
+	#[pallet::storage]
+	#[pallet::getter(fn worker_impl_permissions)]
+	pub type WorkerImplPermissions<T: Config> = StorageMap<_, Identity, WorkerImplName, WorkerImplPermission>;
+
+	/// Storage for worker's implementations' hashes.
+	#[pallet::storage]
+	#[pallet::getter(fn worker_impl_hashes)]
+	pub type WorkerImplHashes<T: Config> = StorageDoubleMap<_, Identity, WorkerImplName, Identity, WorkerImplVersion, WorkerImplHash>;
 
 	/// Storage for computing_workers.
 	#[pallet::storage]
@@ -150,8 +171,8 @@ mod pallet {
 		/// The worker is online
 		Online {
 			worker: T::AccountId,
-			impl_name: ImplName,
-			impl_version: ImplVersion,
+			impl_name: WorkerImplName,
+			impl_version: WorkerImplVersion,
 			attestation_method: Option<AttestationMethod>,
 			next_heartbeat: T::BlockNumber,
 		},
@@ -165,8 +186,18 @@ mod pallet {
 		AttestationRefreshed { worker: T::AccountId },
 		/// The worker's attestation expired
 		AttestationExpired { worker: T::AccountId },
+		/// The worker's implementation blocked
+		WorkerImplBlocked { worker: T::AccountId },
 		/// The worker's reserved money below requirement
 		InsufficientReservedFunds { worker: T::AccountId },
+		/// Update worker's implementation permission successfully
+		WorkerImplPermissionUpdated { impl_name: WorkerImplName },
+		/// Remove worker's implementation permission successfully
+		WorkerImplPermissionRemoved { impl_name: WorkerImplName },
+		/// Update worker's implementation permission successfully
+		WorkerImplHashUpdated { impl_name: WorkerImplName, impl_version: WorkerImplVersion },
+		/// Remove worker's implementation permission successfully
+		WorkerImplHashRemoved { impl_name: WorkerImplName, impl_version: WorkerImplVersion },
 	}
 
 	// Errors inform users that something went wrong.
@@ -200,12 +231,20 @@ mod pallet {
 		InvalidAttestation,
 		/// Attestation payload invalid
 		CanNotVerifyPayload,
-		/// Can not downgrade
-		CanNotDowngrade,
-		/// Worker software changed, it must offline first
-		SoftwareChanged,
 		/// Can't verify payload
 		PayloadSignatureMismatched,
+		/// Can not downgrade
+		WorkerImplCanNotDowngrade,
+		/// Worker's software changed, it must offline first
+		WorkerImplChanged,
+		/// Worker's software blocked
+		WorkerImplBlocked,
+		/// Worker's software unsupported.
+		WorkerImplUnsupported,
+		/// Unknown worker implementation's hash
+		UnknownWorkerImplHash,
+		/// worker implementation's hash mismatch
+		WorkerImplHashMismatched,
 		/// The runtime disallowed NonTEE worker
 		DisallowNonTEEAttestation,
 		/// Unsupported attestation
@@ -401,7 +440,32 @@ mod pallet {
 		#[transactional]
 		pub fn heartbeat(origin: OriginFor<T>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-			Self::do_heartbeat(&who)
+			Self::do_heartbeat(who)
+		}
+
+		/// Set worker's implementations' permissions
+		#[pallet::weight(0)]
+		#[transactional]
+		pub fn set_worker_impl_permission(
+			origin: OriginFor<T>,
+			impl_name: WorkerImplName,
+			impl_permission: Option<WorkerImplPermission>
+		) -> DispatchResult {
+			T::GovernanceOrigin::ensure_origin(origin)?;
+			Self::do_set_worker_impl_permission(impl_name, impl_permission)
+		}
+
+		/// Set worker's implementations' hashes
+		#[pallet::weight(0)]
+		#[transactional]
+		pub fn set_worker_impl_hashes(
+			origin: OriginFor<T>,
+			impl_name: WorkerImplName,
+			impl_version: WorkerImplVersion,
+			impl_hash: Option<WorkerImplHash>
+		) -> DispatchResult {
+			T::GovernanceOrigin::ensure_origin(origin)?;
+			Self::do_set_worker_impl_hashes(impl_name, impl_version, impl_hash)
 		}
 	}
 }
@@ -482,10 +546,21 @@ impl<T: Config> Pallet<T> {
 			_ => return Err(Error::<T>::WrongStatus.into()),
 		}
 
-		// TODO: Validate `impl_name` and `impl_version`
-
 		if worker_info.impl_name == payload.impl_name {
-			ensure!(worker_info.impl_version <= payload.impl_version, Error::<T>::CanNotDowngrade);
+			ensure!(worker_info.impl_version <= payload.impl_version, Error::<T>::WorkerImplCanNotDowngrade);
+		}
+
+		if T::ValidateWorkerImpl::get() {
+			let Some(impl_permission) = WorkerImplPermissions::<T>::get(payload.impl_name) else {
+				return Err(Error::<T>::WorkerImplUnsupported.into())
+			};
+
+			ensure!(
+				payload.impl_version >= impl_permission.oldest_version &&
+				payload.impl_version <= impl_permission.latest_version &&
+				!impl_permission.blocked_versions.contains(&payload.impl_version),
+				Error::<T>::WorkerImplBlocked
+			)
 		}
 
 		// Check reserved money
@@ -539,8 +614,10 @@ impl<T: Config> Pallet<T> {
 			return Ok(())
 		}
 
-		ensure!(worker_info.impl_name == payload.impl_name, Error::<T>::SoftwareChanged);
-		ensure!(worker_info.impl_version == payload.impl_version, Error::<T>::SoftwareChanged);
+		ensure!(worker_info.impl_name == payload.impl_name, Error::<T>::WorkerImplChanged);
+		ensure!(worker_info.impl_version == payload.impl_version, Error::<T>::WorkerImplChanged);
+
+		// Should we validate the impl here?
 
 		Self::ensure_attestation_method(&attestation, &worker_info)?;
 		Self::verify_online_payload(&worker, &payload, &attestation)?;
@@ -595,7 +672,7 @@ impl<T: Config> Pallet<T> {
 	}
 
 	pub fn do_force_offline(worker: T::AccountId, owner: Option<T::AccountId>) -> DispatchResult {
-		let mut worker_info = Workers::<T>::get(&worker).ok_or(Error::<T>::NotExists)?;
+		let worker_info = Workers::<T>::get(&worker).ok_or(Error::<T>::NotExists)?;
 		Self::ensure_worker(&worker, &worker_info)?;
 
 		if let Some(owner) = owner {
@@ -608,20 +685,15 @@ impl<T: Config> Pallet<T> {
 		}
 
 		T::WorkerLifecycleHooks::before_offline(&worker, true);
-
-		worker_info.status = WorkerStatus::Offline;
-		Workers::<T>::insert(&worker, worker_info);
-
-		FlipSet::<T>::remove(&worker);
-		FlopSet::<T>::remove(&worker);
+		Self::offline_worker(&worker);
 
 		Self::deposit_event(Event::<T>::Offline { worker, force: true });
 		Ok(())
 	}
 
-	pub fn do_heartbeat(worker: &T::AccountId) -> DispatchResult {
-		let worker_info = Workers::<T>::get(worker).ok_or(Error::<T>::NotExists)?;
-		Self::ensure_worker(worker, &worker_info)?;
+	pub fn do_heartbeat(worker: T::AccountId) -> DispatchResult {
+		let worker_info = Workers::<T>::get(&worker).ok_or(Error::<T>::NotExists)?;
+		Self::ensure_worker(&worker, &worker_info)?;
 		match worker_info.status {
 			WorkerStatus::Online | WorkerStatus::RequestingOffline => {},
 			_ => return Err(Error::<T>::NotOnline.into()),
@@ -631,82 +703,132 @@ impl<T: Config> Pallet<T> {
 
 		// Check whether attestation expired, if yes, treat as force offline
 		if current_block - worker_info.attested_at > T::AttestationValidityDuration::get().into() {
-			T::WorkerLifecycleHooks::after_attestation_expired(worker);
-
-			FlipSet::<T>::remove(worker);
-			FlopSet::<T>::remove(worker);
-			Workers::<T>::mutate(worker, |worker_info| {
-				if let Some(mut info) = worker_info.as_mut() {
-					info.status = WorkerStatus::Offline;
-				}
-			});
+			T::WorkerLifecycleHooks::after_attestation_expired(&worker);
+			Self::offline_worker(&worker);
 
 			Self::deposit_event(Event::<T>::AttestationExpired { worker: worker.clone() });
-			Self::deposit_event(Event::<T>::Offline { worker: worker.clone(), force: true });
+			Self::deposit_event(Event::<T>::Offline { worker, force: true });
 			return Ok(())
 		}
 
 		// Check whether can offline now, We ignore error here
-		if worker_info.status == WorkerStatus::RequestingOffline && T::WorkerLifecycleHooks::can_offline(worker).is_ok()
+		if worker_info.status == WorkerStatus::RequestingOffline && T::WorkerLifecycleHooks::can_offline(&worker).is_ok()
 		{
-			T::WorkerLifecycleHooks::before_offline(worker, false);
+			T::WorkerLifecycleHooks::before_offline(&worker, false);
+			Self::offline_worker(&worker);
 
-			FlipSet::<T>::remove(worker);
-			FlopSet::<T>::remove(worker);
-			Workers::<T>::mutate(worker, |worker_info| {
-				if let Some(mut info) = worker_info.as_mut() {
-					info.status = WorkerStatus::Offline;
-				}
-			});
-
-			Self::deposit_event(Event::<T>::Offline { worker: worker.clone(), force: false });
+			Self::deposit_event(Event::<T>::Offline { worker, force: false });
 			return Ok(())
 		}
 
 		// Check the worker's reserved money
-		if <T as Config>::Currency::reserved_balance(worker) < T::ReservedDeposit::get() {
-			T::WorkerLifecycleHooks::after_insufficient_reserved_funds(worker);
-
-			FlipSet::<T>::remove(worker);
-			FlopSet::<T>::remove(worker);
-			Workers::<T>::mutate(worker, |worker_info| {
-				if let Some(mut info) = worker_info.as_mut() {
-					info.status = WorkerStatus::Offline;
-				}
-			});
+		if <T as Config>::Currency::reserved_balance(&worker) < T::ReservedDeposit::get() {
+			T::WorkerLifecycleHooks::after_insufficient_reserved_funds(&worker);
+			Self::offline_worker(&worker);
 
 			Self::deposit_event(Event::<T>::InsufficientReservedFunds { worker: worker.clone() });
-			Self::deposit_event(Event::<T>::Offline { worker: worker.clone(), force: true });
+			Self::deposit_event(Event::<T>::Offline { worker, force: true });
 			return Ok(())
+		}
+
+		if T::ValidateWorkerImpl::get() {
+			let valid_impl =
+				if let Some(impl_permission) = WorkerImplPermissions::<T>::get(worker_info.impl_name) {
+					worker_info.impl_version >= impl_permission.oldest_version &&
+						worker_info.impl_version <= impl_permission.latest_version &&
+						!impl_permission.blocked_versions.contains(&worker_info.impl_version)
+				} else {
+					false
+				};
+
+			if !valid_impl {
+				T::WorkerLifecycleHooks::after_impl_blocked(&worker);
+				Self::offline_worker(&worker);
+
+				Self::deposit_event(Event::<T>::WorkerImplBlocked { worker: worker.clone() });
+				Self::deposit_event(Event::<T>::Offline { worker, force: true });
+				return Ok(())
+			}
 		}
 
 		let next_heartbeat = Self::generate_next_heartbeat_block(current_block);
 		let stage = FlipOrFlop::<T>::get();
 		match stage {
 			FlipFlopStage::Flip => {
-				let Some(flip) = FlipSet::<T>::get(worker) else {
+				let Some(flip) = FlipSet::<T>::get(&worker) else {
 					return Err(Error::<T>::HeartbeatAlreadySent.into())
 				};
 				ensure!(flip <= current_block, Error::<T>::TooEarly);
 
-				FlipSet::<T>::remove(worker);
-				FlopSet::<T>::insert(worker, next_heartbeat);
+				FlipSet::<T>::remove(&worker);
+				FlopSet::<T>::insert(&worker, next_heartbeat);
 			},
 			FlipFlopStage::Flop => {
-				let Some(flop) = FlopSet::<T>::get(worker) else {
+				let Some(flop) = FlopSet::<T>::get(&worker) else {
 					return Err(Error::<T>::HeartbeatAlreadySent.into())
 				};
 				ensure!(flop <= current_block, Error::<T>::TooEarly);
 
-				FlopSet::<T>::remove(worker);
-				FlipSet::<T>::insert(worker, next_heartbeat);
+				FlopSet::<T>::remove(&worker);
+				FlipSet::<T>::insert(&worker, next_heartbeat);
 			},
 			_ => return Err(Error::<T>::TooEarly.into()),
 		}
 
-		Self::deposit_event(Event::<T>::HeartbeatReceived { worker: worker.clone(), next_heartbeat });
+		Self::deposit_event(Event::<T>::HeartbeatReceived { worker, next_heartbeat });
 
 		Ok(())
+	}
+
+	fn do_set_worker_impl_permission(
+		impl_name: WorkerImplName,
+		impl_permission: Option<WorkerImplPermission>
+	) -> DispatchResult {
+		let Some(impl_permission) = impl_permission else {
+			WorkerImplPermissions::<T>::remove(impl_name);
+			Self::deposit_event(
+				Event::<T>::WorkerImplPermissionRemoved { impl_name }
+			);
+			return Ok(())
+		};
+
+		WorkerImplPermissions::<T>::insert(impl_name, impl_permission);
+		Self::deposit_event(
+			Event::<T>::WorkerImplPermissionUpdated { impl_name }
+		);
+
+		Ok(())
+	}
+
+	fn do_set_worker_impl_hashes(
+		impl_name: WorkerImplName,
+		impl_version: WorkerImplVersion,
+		impl_hash: Option<WorkerImplHash>
+	) -> DispatchResult {
+		let Some(impl_hash) = impl_hash else {
+			WorkerImplHashes::<T>::remove(impl_name, impl_version);
+			Self::deposit_event(
+				Event::<T>::WorkerImplHashRemoved { impl_name, impl_version }
+			);
+			return Ok(())
+		};
+
+		WorkerImplHashes::<T>::insert(impl_name, impl_version, impl_hash);
+		Self::deposit_event(
+			Event::<T>::WorkerImplHashUpdated { impl_name, impl_version }
+		);
+
+		Ok(())
+	}
+
+	fn offline_worker(worker: &T::AccountId) {
+		FlipSet::<T>::remove(worker);
+		FlopSet::<T>::remove(worker);
+		Workers::<T>::mutate(worker, |worker_info| {
+			if let Some(mut info) = worker_info.as_mut() {
+				info.status = WorkerStatus::Offline;
+			}
+		});
 	}
 
 	fn flipflop_for_online(worker: &T::AccountId) -> T::BlockNumber {

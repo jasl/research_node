@@ -4,6 +4,7 @@ use frame_support::{
 	assert_ok,
 	traits::{OnFinalize, OnInitialize},
 };
+use frame_system::EnsureRoot;
 use sp_core::{ConstBool, ConstU128, ConstU16, ConstU32, ConstU64, H256};
 use sp_runtime::{
 	testing::Header,
@@ -96,6 +97,9 @@ impl pallet_computing_workers::Config for Test {
 	type AttestationValidityDuration = ConstU32<12>;
 	type DisallowOptOutAttestation = ConstBool<false>;
 	type DisallowNonTEEAttestation = ConstBool<false>;
+	type ValidateWorkerImpl = ConstBool<false>;
+	type ValidateWorkerImplHash = ConstBool<false>;
+	type GovernanceOrigin = EnsureRoot<Self::AccountId>;
 	type WeightInfo = ();
 	type WorkerLifecycleHooks = FakeComputing;
 }

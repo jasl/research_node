@@ -189,6 +189,17 @@ pub mod pallet {
 			<RunningWorkers<T>>::remove(worker);
 		}
 
+		fn after_impl_blocked(worker: &T::AccountId) {
+			log!(info, "after_impl_blocked: {:?}", worker);
+
+			if !<RunningWorkers<T>>::contains_key(worker) {
+				return
+			}
+
+			<T::WorkerManageable as WorkerManageable<_, _>>::slash(worker, (10 * UNITS).saturated_into());
+			<RunningWorkers<T>>::remove(worker);
+		}
+
 		fn after_insufficient_reserved_funds(worker: &T::AccountId) {
 			log!(info, "after_insufficient_reserved_funds: {:?}", worker);
 

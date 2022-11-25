@@ -1,4 +1,5 @@
 use crate::*;
+use frame_system::EnsureRoot;
 use sp_core::{ConstBool, ConstU128, ConstU32};
 
 impl pallet_computing_workers::Config for Runtime {
@@ -12,6 +13,9 @@ impl pallet_computing_workers::Config for Runtime {
 	type AttestationValidityDuration = ConstU32<432000>; // 10 block/min * 60 min * 24 hour * 30 days = 432000 block
 	type DisallowOptOutAttestation = ConstBool<true>;
 	type DisallowNonTEEAttestation = ConstBool<false>;
+	type ValidateWorkerImpl = ConstBool<false>;
+	type ValidateWorkerImplHash = ConstBool<false>;
+	type GovernanceOrigin = EnsureRoot<Self::AccountId>;
 	type WeightInfo = pallet_computing_workers::weights::SubstrateWeight<Runtime>;
 	#[cfg(not(feature = "runtime-benchmarks"))]
 	type WorkerLifecycleHooks = FakeComputing;
