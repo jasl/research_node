@@ -18,6 +18,9 @@ pub const ATTESTATION_ISSUED_PERIOD_OF_VALIDITY: u64 = 60 * 60 * 1000; // 1 hour
 pub const MAX_ATTESTATION_PAYLOAD_SIZE: u32 = 64 * 1000; // limit to 64KB
 pub const MAX_CUSTOM_PAYLOAD_SIZE: u32 = 64 * 1000; // limit to 64KB
 
+pub type ImplName = [u8; 4];
+pub type ImplVersion = u32;
+
 pub type AttestationPayload = BoundedVec<u8, ConstU32<MAX_ATTESTATION_PAYLOAD_SIZE>>;
 pub type ExtraOnlinePayload = BoundedVec<u8, ConstU32<MAX_CUSTOM_PAYLOAD_SIZE>>;
 
@@ -93,7 +96,8 @@ fn verify_non_tee_attestation(attestation: &NonTEEAttestation, now: u64) -> Resu
 
 #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 pub struct OnlinePayload {
-	pub spec_version: u32,
+	pub impl_name: ImplName,
+	pub impl_version: ImplVersion,
 	pub extra: ExtraOnlinePayload,
 }
 
@@ -137,9 +141,12 @@ pub struct WorkerInfo<Account, Balance, BlockNumber> {
 	pub reserved: Balance,
 	/// Status
 	pub status: WorkerStatus,
+	/// Name identifier of the computer worker's implementation
+	pub impl_name: ImplName,
+	/// Version of the computer worker's implementation
 	/// Not the public version exposed to end users,
-	/// Spec version is a sequential number that space and use friendly
-	pub spec_version: u32,
+	/// Impl version is a sequential number that space and use friendly
+	pub impl_version: ImplVersion,
 	/// Attestation method,
 	/// This field is readonly once set
 	pub attestation_method: Option<AttestationMethod>,

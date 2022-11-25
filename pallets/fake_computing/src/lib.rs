@@ -34,14 +34,14 @@ pub const UNITS: u128 = 1_000 * CENTS;
 
 #[frame_support::pallet]
 pub mod pallet {
-	use frame_support::{pallet_prelude::*, sp_std::prelude::*, traits::Currency, sp_runtime::SaturatedConversion};
+	use frame_support::{pallet_prelude::*, sp_runtime::SaturatedConversion, sp_std::prelude::*, traits::Currency};
 	use frame_system::pallet_prelude::*;
 
+	use crate::{log, BalanceOf, UNITS};
 	use pallet_computing_workers::{
 		traits::{WorkerLifecycleHooks, WorkerManageable},
 		types::OnlinePayload,
 	};
-	use crate::{BalanceOf, UNITS, log};
 
 	#[pallet::pallet]
 	#[pallet::generate_store(pub(super) trait Store)]
@@ -95,20 +95,12 @@ pub mod pallet {
 		pub fn start(origin: OriginFor<T>, worker: T::AccountId) -> DispatchResult {
 			let _who = ensure_signed(origin)?; // Maybe `ensure_root` ?
 
-			ensure!(
-				!<RunningWorkers<T>>::contains_key(&worker),
-				Error::<T>::AlreadyStarted
-			);
-			ensure!(
-				!<BlockedWorkers<T>>::contains_key(&worker),
-				Error::<T>::Blocked
-			);
+			ensure!(!<RunningWorkers<T>>::contains_key(&worker), Error::<T>::AlreadyStarted);
+			ensure!(!<BlockedWorkers<T>>::contains_key(&worker), Error::<T>::Blocked);
 
 			<RunningWorkers<T>>::insert(&worker, ());
 
-			Self::deposit_event(
-				Event::Started { worker }
-			);
+			Self::deposit_event(Event::Started { worker });
 
 			Ok(())
 		}
@@ -117,16 +109,11 @@ pub mod pallet {
 		pub fn stop(origin: OriginFor<T>, worker: T::AccountId) -> DispatchResult {
 			let _who = ensure_signed(origin)?; // Maybe `ensure_root` ?
 
-			ensure!(
-				<RunningWorkers<T>>::contains_key(&worker),
-				Error::<T>::AlreadyStopped
-			);
+			ensure!(<RunningWorkers<T>>::contains_key(&worker), Error::<T>::AlreadyStopped);
 
 			<RunningWorkers<T>>::remove(&worker);
 
-			Self::deposit_event(
-				Event::Stopped { worker }
-			);
+			Self::deposit_event(Event::Stopped { worker });
 
 			Ok(())
 		}
@@ -136,14 +123,8 @@ pub mod pallet {
 		fn can_online(worker: &T::AccountId, _payload: &OnlinePayload) -> DispatchResult {
 			log!(info, "can_online: {:?}", worker);
 
-			ensure!(
-				!<BlockedWorkers<T>>::contains_key(worker),
-				Error::<T>::Blocked
-			);
-			ensure!(
-				!<RunningWorkers<T>>::contains_key(worker),
-				Error::<T>::AlreadyStarted
-			);
+			ensure!(!<BlockedWorkers<T>>::contains_key(worker), Error::<T>::Blocked);
+			ensure!(!<RunningWorkers<T>>::contains_key(worker), Error::<T>::AlreadyStarted);
 
 			Ok(())
 		}
@@ -153,18 +134,13 @@ pub mod pallet {
 
 			<RunningWorkers<T>>::insert(worker, ());
 
-			Self::deposit_event(
-				Event::Started { worker: worker.clone() }
-			);
+			Self::deposit_event(Event::Started { worker: worker.clone() });
 		}
 
 		fn can_offline(worker: &T::AccountId) -> DispatchResult {
 			log!(info, "can_offline: {:?}", worker);
 
-			ensure!(
-				!<RunningWorkers<T>>::contains_key(worker),
-				Error::<T>::Computing
-			);
+			ensure!(!<RunningWorkers<T>>::contains_key(worker), Error::<T>::Computing);
 
 			Ok(())
 		}

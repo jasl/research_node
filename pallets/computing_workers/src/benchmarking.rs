@@ -2,37 +2,35 @@
 
 use super::*;
 
+use crate::types::{
+	AttestationMethod, AttestationPayload, ExtraOnlinePayload, FlipFlopStage, NonTEEAttestation, OnlinePayload,
+	WorkerStatus,
+};
 #[allow(unused)]
 use crate::Pallet as ComputingWorkers;
 use frame_benchmarking::{account, benchmarks, whitelisted_caller};
-use frame_system::{RawOrigin, Account};
-use frame_support::{sp_runtime::{SaturatedConversion, Saturating}, assert_ok, fail};
-use sp_runtime::app_crypto::{RuntimePublic, sr25519, KeyTypeId};
-use crate::types::{
-	AttestationMethod, AttestationPayload, ExtraOnlinePayload, NonTEEAttestation, OnlinePayload,
-	WorkerStatus, FlipFlopStage,
+use frame_support::{
+	assert_ok, fail,
+	sp_runtime::{SaturatedConversion, Saturating},
 };
+use frame_system::{Account, RawOrigin};
+use sp_runtime::app_crypto::{sr25519, KeyTypeId, RuntimePublic};
 
 const DOLLARS: u128 = 100_000_000_000;
 const WORKER_KEY_TYPE: KeyTypeId = KeyTypeId(*b"work");
 
-fn mock_online_payload_and_attestation<T: Config>(worker_public: &sr25519::Public) -> (OnlinePayload, Option<Attestation>) {
-	let payload = OnlinePayload {
-		spec_version: 1,
-		extra: ExtraOnlinePayload::default(),
-	};
+fn mock_online_payload_and_attestation<T: Config>(
+	worker_public: &sr25519::Public,
+) -> (OnlinePayload, Option<Attestation>) {
+	let payload = OnlinePayload { impl_name: *b"mock", impl_version: 1, extra: ExtraOnlinePayload::default() };
 
 	let encoded_payload = Encode::encode(&payload);
 	let signature = worker_public.sign(WORKER_KEY_TYPE, &encoded_payload).unwrap();
 
-	let attestation = Attestation::NonTEE(
-		NonTEEAttestation {
-			issued_at: T::UnixTime::now().as_millis().saturated_into::<u64>() - 1000,
-			payload: AttestationPayload::truncate_from(
-				signature.0.to_vec()
-			)
-		}
-	);
+	let attestation = Attestation::NonTEE(NonTEEAttestation {
+		issued_at: T::UnixTime::now().as_millis().saturated_into::<u64>() - 1000,
+		payload: AttestationPayload::truncate_from(signature.0.to_vec()),
+	});
 
 	(payload, Some(attestation))
 }
@@ -46,13 +44,11 @@ fn add_mock_worker<T: Config>(worker_public: &sr25519::Public, owner: &T::Accoun
 
 	let initial_deposit = reserved_deposit.saturating_add((10 * DOLLARS).saturated_into::<BalanceOf<T>>());
 
-	assert_ok!(
-		ComputingWorkers::<T>::register(
-			RawOrigin::Signed(owner.clone()).into(),
-			worker.clone(),
-			initial_deposit
-		)
-	);
+	assert_ok!(ComputingWorkers::<T>::register(
+		RawOrigin::Signed(owner.clone()).into(),
+		worker.clone(),
+		initial_deposit
+	));
 	assert_eq!(Workers::<T>::contains_key(&worker), true);
 
 	worker
@@ -62,13 +58,7 @@ fn add_mock_online_worker<T: Config>(worker_public: &sr25519::Public, owner: &T:
 	let worker = add_mock_worker::<T>(worker_public, owner);
 
 	let (payload, attestation) = mock_online_payload_and_attestation::<T>(worker_public);
-	assert_ok!(
-		ComputingWorkers::<T>::online(
-			RawOrigin::Signed(worker.clone()).into(),
-			payload,
-			attestation
-		)
-	);
+	assert_ok!(ComputingWorkers::<T>::online(RawOrigin::Signed(worker.clone()).into(), payload, attestation));
 
 	let worker_info = Workers::<T>::get(&worker).expect("WorkerInfo should has value");
 	assert_eq!(worker_info.attestation_method, Some(AttestationMethod::NonTEE));

@@ -7,9 +7,10 @@ import { KeyringPair } from "https://deno.land/x/polkadot/keyring/types.ts";
 import { ApiPromise, HttpProvider, Keyring, WsProvider } from "https://deno.land/x/polkadot/api/mod.ts";
 import { Application, Router } from "https://deno.land/x/oak/mod.ts";
 
-const IMPL_NAME = "Research computing worker";
-const VERSION = "v0.0.1-dev";
-const SPEC_VERSION = 1;
+const APP_NAME = "Research computing worker";
+const APP_VERSION = "v0.0.1-dev";
+const IMPL_NAME = "deno".split("").map(c => c.charCodeAt(0));
+const IMPL_VERSION = 1;
 
 const parsedArgs = parse(Deno.args, {
   alias: {
@@ -71,7 +72,7 @@ async function prepareDirectory(path: string): Promise<boolean> {
 
 function welcome() {
   console.log(`
-${IMPL_NAME} implementation in Deno.
+${APP_NAME} implementation in Deno.
 
 Warning: This is just a prototype implementation,
          in final product, it should be protected by TEE (Trusted Execution Environment) technology,
@@ -101,7 +102,7 @@ Options:
 }
 
 function version() {
-  console.log(`${IMPL_NAME} ${VERSION} (${SPEC_VERSION})`);
+  console.log(`${APP_NAME} ${APP_VERSION} (${IMPL_VERSION})`);
 }
 
 async function initializeLogger(logPath: string) {
@@ -174,7 +175,8 @@ function createSubstrateApi(rpcUrl: string): ApiPromise | null {
       AttestationPayload: "BoundedVec<u8, 64000>",
       ExtraOnlinePayload: "BoundedVec<u8, 64000>",
       OnlinePayload: {
-        spec_version: "u32",
+        impl_name: "[u8; 4]",
+        impl_version: "u32",
         extra: "BoundedVec<u8, 64000>"
       },
       NonTEEAttestation: {
@@ -205,7 +207,8 @@ function createSubstrateApi(rpcUrl: string): ApiPromise | null {
         owner: "AccountId",
         reserved: "Balance",
         status: "WorkerStatus",
-        spec_version: "u32",
+        impl_name: "[u8; 4]",
+        impl_version: "u32",
         attestation_method: "Option<AttestationMethod>",
         attested_at: "BlockNumber",
       },
@@ -451,7 +454,8 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
     }
 
     const payload = api.createType("OnlinePayload", {
-      "spec_version": SPEC_VERSION,
+      "impl_name": IMPL_NAME,
+      "impl_version": IMPL_VERSION,
       "payload": api.createType("AttestationPayload", [])
     });
     const payloadSig = window.workerKeyPair.sign(payload.toU8a());
@@ -477,7 +481,8 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
   if (window.refreshAttestationInterval > 0) {
     if (window.locals.sentRefreshAttestationAt === undefined && latestBlockNumber > window.attestedAt + window.refreshAttestationInterval) {
       const payload = api.createType("OnlinePayload", {
-        "spec_version": SPEC_VERSION,
+        "impl_name": IMPL_NAME,
+        "impl_version": IMPL_VERSION,
       });
       const payloadSig = window.workerKeyPair.sign(payload.toU8a());
       const attestation = createAttestation(api, u8aToHex(payloadSig));
@@ -558,7 +563,7 @@ router.get("/", (ctx) => {
     workerStatus: window.workerStatus,
     attestedAt: window.attestedAt,
     version: VERSION,
-    specVersion: SPEC_VERSION,
+    implVersion: IMPL_VERSION,
   };
 });
 

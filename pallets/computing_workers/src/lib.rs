@@ -32,8 +32,8 @@ pub use pallet::*;
 use crate::{
 	traits::{WorkerLifecycleHooks, WorkerManageable},
 	types::{
-		Attestation, AttestationError, AttestationMethod, FlipFlopStage, OnlinePayload, VerifiedAttestation,
-		WorkerInfo, WorkerStatus,
+		Attestation, AttestationError, AttestationMethod, FlipFlopStage, ImplName, ImplVersion, OnlinePayload,
+		VerifiedAttestation, WorkerInfo, WorkerStatus,
 	},
 	weights::WeightInfo,
 };
@@ -148,13 +148,19 @@ mod pallet {
 		/// The worker registered successfully
 		Deregistered { worker: T::AccountId, force: bool },
 		/// The worker is online
-		Online { worker: T::AccountId },
+		Online {
+			worker: T::AccountId,
+			impl_name: ImplName,
+			impl_version: ImplVersion,
+			attestation_method: Option<AttestationMethod>,
+			next_heartbeat: T::BlockNumber,
+		},
 		/// The worker is requesting offline
 		RequestingOffline { worker: T::AccountId },
 		/// The worker is offline
 		Offline { worker: T::AccountId, force: bool },
 		/// The worker send heartbeat successfully
-		HeartbeatReceived { worker: T::AccountId },
+		HeartbeatReceived { worker: T::AccountId, next_heartbeat: T::BlockNumber },
 		/// The worker refresh its attestation successfully
 		AttestationRefreshed { worker: T::AccountId },
 		/// The worker's attestation expired
@@ -415,7 +421,8 @@ impl<T: Config> Pallet<T> {
 			owner: owner.clone(),
 			reserved: initial_reserved_deposit,
 			status: WorkerStatus::Registered,
-			spec_version: 0,
+			impl_name: [0, 0, 0, 0],
+			impl_version: 0,
 			attestation_method: None,
 			attested_at: T::BlockNumber::default(),
 		};
@@ -475,7 +482,12 @@ impl<T: Config> Pallet<T> {
 			WorkerStatus::Registered | WorkerStatus::Offline => {},
 			_ => return Err(Error::<T>::WrongStatus.into()),
 		}
-		ensure!(worker_info.spec_version <= payload.spec_version, Error::<T>::CanNotDowngrade);
+
+		// TODO: Validate `impl_name` and `impl_version`
+
+		if worker_info.impl_name == payload.impl_name {
+			ensure!(worker_info.impl_version <= payload.impl_version, Error::<T>::CanNotDowngrade);
+		}
 
 		// Check reserved money
 		let reserved = <T as Config>::Currency::reserved_balance(&worker);
@@ -491,16 +503,25 @@ impl<T: Config> Pallet<T> {
 		Self::verify_online_payload(&worker, &payload, &attestation)?;
 		T::WorkerLifecycleHooks::can_online(&worker, &payload)?;
 
-		worker_info.spec_version = payload.spec_version;
-		worker_info.attestation_method = attestation.map(|a| a.method());
+		let attestation_method: Option<AttestationMethod> = attestation.map(|a| a.method());
+
+		worker_info.impl_name = payload.impl_name;
+		worker_info.impl_version = payload.impl_version;
+		worker_info.attestation_method = attestation_method.clone();
 		worker_info.attested_at = frame_system::Pallet::<T>::block_number();
 		worker_info.status = WorkerStatus::Online;
 
 		Workers::<T>::insert(&worker, worker_info);
 
-		Self::flipflop_for_online(&worker);
+		let next_heartbeat = Self::flipflop_for_online(&worker);
 
-		Self::deposit_event(Event::<T>::Online { worker: worker.clone() });
+		Self::deposit_event(Event::<T>::Online {
+			worker: worker.clone(),
+			impl_name: payload.impl_name,
+			impl_version: payload.impl_version,
+			attestation_method,
+			next_heartbeat,
+		});
 
 		T::WorkerLifecycleHooks::after_online(&worker);
 
@@ -519,7 +540,8 @@ impl<T: Config> Pallet<T> {
 			return Ok(())
 		}
 
-		ensure!(worker_info.spec_version == payload.spec_version, Error::<T>::SoftwareChanged);
+		ensure!(worker_info.impl_name == payload.impl_name, Error::<T>::SoftwareChanged);
+		ensure!(worker_info.impl_version == payload.impl_version, Error::<T>::SoftwareChanged);
 
 		Self::ensure_attestation_method(&attestation, &worker_info)?;
 		Self::verify_online_payload(&worker, &payload, &attestation)?;
@@ -659,6 +681,7 @@ impl<T: Config> Pallet<T> {
 			return Ok(())
 		}
 
+		let next_heartbeat = Self::generate_next_heartbeat_block(current_block);
 		let stage = FlipOrFlop::<T>::get();
 		match stage {
 			FlipFlopStage::Flip => {
@@ -668,7 +691,7 @@ impl<T: Config> Pallet<T> {
 				ensure!(flip <= current_block, Error::<T>::TooEarly);
 
 				FlipSet::<T>::remove(worker);
-				FlopSet::<T>::insert(worker, Self::generate_next_heartbeat_block(current_block));
+				FlopSet::<T>::insert(worker, next_heartbeat);
 			},
 			FlipFlopStage::Flop => {
 				let Some(flop) = FlopSet::<T>::get(worker) else {
@@ -677,28 +700,31 @@ impl<T: Config> Pallet<T> {
 				ensure!(flop <= current_block, Error::<T>::TooEarly);
 
 				FlopSet::<T>::remove(worker);
-				FlipSet::<T>::insert(worker, Self::generate_next_heartbeat_block(current_block));
+				FlipSet::<T>::insert(worker, next_heartbeat);
 			},
 			_ => return Err(Error::<T>::TooEarly.into()),
 		}
 
-		Self::deposit_event(Event::<T>::HeartbeatReceived { worker: worker.clone() });
+		Self::deposit_event(Event::<T>::HeartbeatReceived { worker: worker.clone(), next_heartbeat });
 
 		Ok(())
 	}
 
-	fn flipflop_for_online(worker: &T::AccountId) {
+	fn flipflop_for_online(worker: &T::AccountId) -> T::BlockNumber {
 		let current_block = frame_system::Pallet::<T>::block_number();
 
+		let next_heartbeat = Self::generate_next_heartbeat_block(current_block);
 		let stage = FlipOrFlop::<T>::get();
 		match stage {
 			FlipFlopStage::Flip | FlipFlopStage::FlopToFlip => {
-				FlopSet::<T>::insert(worker, Self::generate_next_heartbeat_block(current_block));
+				FlopSet::<T>::insert(worker, next_heartbeat);
 			},
 			FlipFlopStage::Flop | FlipFlopStage::FlipToFlop => {
-				FlipSet::<T>::insert(worker, Self::generate_next_heartbeat_block(current_block));
+				FlipSet::<T>::insert(worker, next_heartbeat);
 			},
 		}
+
+		next_heartbeat
 	}
 
 	fn handle_worker_unresponsive(worker: &T::AccountId) {
