@@ -7,31 +7,29 @@ use crate::Pallet as ComputingWorkers;
 use frame_benchmarking::{account, benchmarks, whitelisted_caller};
 use frame_system::{RawOrigin, Account};
 use frame_support::{sp_runtime::{SaturatedConversion, Saturating}, assert_ok, fail};
+use sp_runtime::app_crypto::{RuntimePublic, sr25519, KeyTypeId};
 use crate::types::{
 	AttestationMethod, AttestationPayload, ExtraOnlinePayload, NonTEEAttestation, OnlinePayload,
 	WorkerStatus, FlipFlopStage,
 };
 
-const SEED: u32 = 0;
+const DOLLARS: u128 = 100_000_000_000;
+const WORKER_KEY_TYPE: KeyTypeId = KeyTypeId(*b"work");
 
-type Balance = u128;
-const MILLI_CENTS: Balance = 1_000_000;
-const CENTS: Balance = 1_000 * MILLI_CENTS;
-const DOLLARS: Balance = 100 * CENTS;
-
-fn mock_online_payload_and_attestation() -> (OnlinePayload, Option<Attestation>) {
+fn mock_online_payload_and_attestation<T: Config>(worker_public: &sr25519::Public) -> (OnlinePayload, Option<Attestation>) {
 	let payload = OnlinePayload {
 		spec_version: 1,
 		extra: ExtraOnlinePayload::default(),
 	};
 
+	let encoded_payload = Encode::encode(&payload);
+	let signature = worker_public.sign(WORKER_KEY_TYPE, &encoded_payload).unwrap();
+
 	let attestation = Attestation::NonTEE(
 		NonTEEAttestation {
-			issued_at: 1669297549807,
+			issued_at: T::UnixTime::now().as_millis().saturated_into::<u64>() - 1000,
 			payload: AttestationPayload::truncate_from(
-				hex_literal::hex!(
-					"a6ab1b925f50c4a6a8def5125050730356930ff988eec941e632a14f98f7a01ef56d339e5e314c473f0a15adc1f374856d476e4de8227991ea2ff6d03056e08b"
-				).to_vec()
+				signature.0.to_vec()
 			)
 		}
 	);
@@ -39,9 +37,8 @@ fn mock_online_payload_and_attestation() -> (OnlinePayload, Option<Attestation>)
 	(payload, Some(attestation))
 }
 
-fn add_mock_worker<T: Config>(owner: &T::AccountId) -> T::AccountId {
-	let mock_worker_public = hex_literal::hex!("1efe052c6f591f3c6884ce9f7a60c8e73a869e1940569b284f4d3e904897dd30");
-	let worker = T::AccountId::decode(&mut &mock_worker_public.encode()[..]).unwrap();
+fn add_mock_worker<T: Config>(worker_public: &sr25519::Public, owner: &T::AccountId) -> T::AccountId {
+	let worker = T::AccountId::decode(&mut worker_public.encode().as_slice()).unwrap();
 	let reserved_deposit = T::ReservedDeposit::get();
 
 	let owner_balance = reserved_deposit.saturating_add((50 * DOLLARS).saturated_into::<BalanceOf<T>>());
@@ -61,10 +58,10 @@ fn add_mock_worker<T: Config>(owner: &T::AccountId) -> T::AccountId {
 	worker
 }
 
-fn add_mock_online_worker<T: Config>(owner: &T::AccountId) -> T::AccountId {
-	let worker = add_mock_worker::<T>(owner);
+fn add_mock_online_worker<T: Config>(worker_public: &sr25519::Public, owner: &T::AccountId) -> T::AccountId {
+	let worker = add_mock_worker::<T>(worker_public, owner);
 
-	let (payload, attestation) = mock_online_payload_and_attestation();
+	let (payload, attestation) = mock_online_payload_and_attestation::<T>(worker_public);
 	assert_ok!(
 		ComputingWorkers::<T>::online(
 			RawOrigin::Signed(worker.clone()).into(),
@@ -82,7 +79,7 @@ fn add_mock_online_worker<T: Config>(owner: &T::AccountId) -> T::AccountId {
 benchmarks! {
 	register {
 		let owner: T::AccountId = whitelisted_caller();
-		let worker = account::<T::AccountId>("worker", 0, SEED);
+		let worker = account::<T::AccountId>("worker", 0, 0);
 
 		let reserved_deposit = T::ReservedDeposit::get();
 		let balance = reserved_deposit.saturating_add((1 * DOLLARS).saturated_into::<BalanceOf<T>>());
@@ -97,7 +94,8 @@ benchmarks! {
 
 	deregister {
 		let owner: T::AccountId = whitelisted_caller();
-		let worker = add_mock_worker::<T>(&owner);
+		let worker_public = sr25519::Public::generate_pair(WORKER_KEY_TYPE, None);
+		let worker = add_mock_worker::<T>(&worker_public, &owner);
 	}: _(RawOrigin::Signed(owner.clone()), worker.clone())
 	verify {
 		assert_eq!(Workers::<T>::contains_key(&worker), false);
@@ -106,7 +104,8 @@ benchmarks! {
 
 	deposit {
 		let owner: T::AccountId = whitelisted_caller();
-		let worker = add_mock_worker::<T>(&owner);
+		let worker_public = sr25519::Public::generate_pair(WORKER_KEY_TYPE, None);
+		let worker = add_mock_worker::<T>(&worker_public, &owner);
 
 		let worker_balance = T::Currency::free_balance(&worker);
 		let amount = (10 * DOLLARS).saturated_into::<BalanceOf<T>>();
@@ -120,7 +119,8 @@ benchmarks! {
 
 	withdraw {
 		let owner: T::AccountId = whitelisted_caller();
-		let worker = add_mock_worker::<T>(&owner);
+		let worker_public = sr25519::Public::generate_pair(WORKER_KEY_TYPE, None);
+		let worker = add_mock_worker::<T>(&worker_public, &owner);
 
 		let worker_balance = T::Currency::free_balance(&worker);
 		let amount = (10 * DOLLARS).saturated_into::<BalanceOf<T>>();
@@ -134,8 +134,9 @@ benchmarks! {
 
 	online {
 		let owner: T::AccountId = whitelisted_caller();
-		let worker = add_mock_worker::<T>(&owner);
-		let (payload, attestation) = mock_online_payload_and_attestation();
+		let worker_public = sr25519::Public::generate_pair(WORKER_KEY_TYPE, None);
+		let worker = add_mock_worker::<T>(&worker_public, &owner);
+		let (payload, attestation) = mock_online_payload_and_attestation::<T>(&worker_public);
 	}: _(RawOrigin::Signed(worker.clone()), payload, attestation)
 	verify {
 		let worker_info = Workers::<T>::get(&worker).expect("WorkerInfo should has value");
@@ -145,8 +146,9 @@ benchmarks! {
 
 	refresh_attestation {
 		let owner: T::AccountId = whitelisted_caller();
-		let worker = add_mock_online_worker::<T>(&owner);
-		let (payload, attestation) = mock_online_payload_and_attestation();
+		let worker_public = sr25519::Public::generate_pair(WORKER_KEY_TYPE, None);
+		let worker = add_mock_online_worker::<T>(&worker_public, &owner);
+		let (payload, attestation) = mock_online_payload_and_attestation::<T>(&worker_public);
 		let current_block = frame_system::Pallet::<T>::block_number();
 	}: _(RawOrigin::Signed(worker.clone()), payload, attestation)
 	verify {
@@ -159,7 +161,8 @@ benchmarks! {
 	// worker shall offline immediately instead of becoming `RequestingOffline`
 	request_offline {
 		let owner: T::AccountId = whitelisted_caller();
-		let worker = add_mock_online_worker::<T>(&owner);
+		let worker_public = sr25519::Public::generate_pair(WORKER_KEY_TYPE, None);
+		let worker = add_mock_online_worker::<T>(&worker_public, &owner);
 	}: _(RawOrigin::Signed(worker.clone()))
 	verify {
 		let worker_info = Workers::<T>::get(&worker).expect("WorkerInfo should has value");
@@ -170,7 +173,8 @@ benchmarks! {
 	// worker shall offline immediately instead of becoming `RequestingOffline`
 	request_offline_for {
 		let owner: T::AccountId = whitelisted_caller();
-		let worker = add_mock_online_worker::<T>(&owner);
+		let worker_public = sr25519::Public::generate_pair(WORKER_KEY_TYPE, None);
+		let worker = add_mock_online_worker::<T>(&worker_public, &owner);
 	}: _(RawOrigin::Signed(owner.clone()), worker.clone())
 	verify {
 		let worker_info = Workers::<T>::get(&worker).expect("WorkerInfo should has value");
@@ -179,7 +183,8 @@ benchmarks! {
 
 	force_offline {
 		let owner: T::AccountId = whitelisted_caller();
-		let worker = add_mock_online_worker::<T>(&owner);
+		let worker_public = sr25519::Public::generate_pair(WORKER_KEY_TYPE, None);
+		let worker = add_mock_online_worker::<T>(&worker_public, &owner);
 	}: _(RawOrigin::Signed(worker.clone()))
 	verify {
 		let worker_info = Workers::<T>::get(&worker).expect("WorkerInfo should has value");
@@ -188,7 +193,8 @@ benchmarks! {
 
 	force_offline_for {
 		let owner: T::AccountId = whitelisted_caller();
-		let worker = add_mock_online_worker::<T>(&owner);
+		let worker_public = sr25519::Public::generate_pair(WORKER_KEY_TYPE, None);
+		let worker = add_mock_online_worker::<T>(&worker_public, &owner);
 	}: _(RawOrigin::Signed(owner.clone()), worker.clone())
 	verify {
 		let worker_info = Workers::<T>::get(&worker).expect("WorkerInfo should has value");
@@ -198,7 +204,8 @@ benchmarks! {
 	// This is the normal path
 	heartbeat {
 		let owner: T::AccountId = whitelisted_caller();
-		let worker = add_mock_online_worker::<T>(&owner);
+		let worker_public = sr25519::Public::generate_pair(WORKER_KEY_TYPE, None);
+		let worker = add_mock_online_worker::<T>(&worker_public, &owner);
 
 		let stage = FlipOrFlop::<T>::get();
 		// Simulate to the next stage

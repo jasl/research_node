@@ -3,7 +3,7 @@
 //!
 //! THIS FILE WAS AUTO-GENERATED USING THE SUBSTRATE BENCHMARK CLI VERSION 4.0.0-dev
 //! DATE: 2022-11-25, STEPS: `50`, REPEAT: 50, LOW RANGE: `[]`, HIGH RANGE: `[]`
-//! HOSTNAME: `Jasl-MBP2021-323.local`, CPU: `<UNKNOWN>`
+//! CPU: `<UNKNOWN>`
 //! EXECUTION: Some(Wasm), WASM-EXECUTION: Compiled, CHAIN: Some("dev"), DB CACHE: 1024
 
 // Executed Command:
@@ -59,7 +59,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	// Storage: System Account (r:1 w:1)
 	// Storage: ComputingWorkers CounterForWorkers (r:1 w:1)
 	fn deregister() -> Weight {
-		// Minimum execution time: 44_000 nanoseconds.
+		// Minimum execution time: 45_000 nanoseconds.
 		Weight::from_ref_time(45_000_000)
 			.saturating_add(T::DbWeight::get().reads(3))
 			.saturating_add(T::DbWeight::get().writes(3))
@@ -67,7 +67,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	// Storage: ComputingWorkers Workers (r:1 w:0)
 	// Storage: System Account (r:1 w:1)
 	fn deposit() -> Weight {
-		// Minimum execution time: 26_000 nanoseconds.
+		// Minimum execution time: 27_000 nanoseconds.
 		Weight::from_ref_time(27_000_000)
 			.saturating_add(T::DbWeight::get().reads(2))
 			.saturating_add(T::DbWeight::get().writes(1))
@@ -88,16 +88,16 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	// Storage: ComputingWorkers FlopSet (r:1 w:1)
 	// Storage: ComputingWorkers CounterForFlopSet (r:1 w:1)
 	fn online() -> Weight {
-		// Minimum execution time: 66_000 nanoseconds.
-		Weight::from_ref_time(67_000_000)
+		// Minimum execution time: 67_000 nanoseconds.
+		Weight::from_ref_time(69_000_000)
 			.saturating_add(T::DbWeight::get().reads(7))
 			.saturating_add(T::DbWeight::get().writes(3))
 	}
 	// Storage: ComputingWorkers Workers (r:1 w:1)
 	// Storage: Timestamp Now (r:1 w:0)
 	fn refresh_attestation() -> Weight {
-		// Minimum execution time: 57_000 nanoseconds.
-		Weight::from_ref_time(58_000_000)
+		// Minimum execution time: 58_000 nanoseconds.
+		Weight::from_ref_time(59_000_000)
 			.saturating_add(T::DbWeight::get().reads(2))
 			.saturating_add(T::DbWeight::get().writes(1))
 	}
@@ -150,8 +150,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	// Storage: ComputingWorkers FlipSet (r:1 w:1)
 	// Storage: ComputingWorkers CounterForFlipSet (r:1 w:1)
 	fn heartbeat() -> Weight {
-		// Minimum execution time: 30_000 nanoseconds.
-		Weight::from_ref_time(31_000_000)
+		// Minimum execution time: 31_000 nanoseconds.
+		Weight::from_ref_time(32_000_000)
 			.saturating_add(T::DbWeight::get().reads(8))
 			.saturating_add(T::DbWeight::get().writes(4))
 	}
@@ -172,7 +172,7 @@ impl WeightInfo for () {
 	// Storage: System Account (r:1 w:1)
 	// Storage: ComputingWorkers CounterForWorkers (r:1 w:1)
 	fn deregister() -> Weight {
-		// Minimum execution time: 44_000 nanoseconds.
+		// Minimum execution time: 45_000 nanoseconds.
 		Weight::from_ref_time(45_000_000)
 			.saturating_add(RocksDbWeight::get().reads(3))
 			.saturating_add(RocksDbWeight::get().writes(3))
@@ -180,7 +180,7 @@ impl WeightInfo for () {
 	// Storage: ComputingWorkers Workers (r:1 w:0)
 	// Storage: System Account (r:1 w:1)
 	fn deposit() -> Weight {
-		// Minimum execution time: 26_000 nanoseconds.
+		// Minimum execution time: 27_000 nanoseconds.
 		Weight::from_ref_time(27_000_000)
 			.saturating_add(RocksDbWeight::get().reads(2))
 			.saturating_add(RocksDbWeight::get().writes(1))
@@ -201,16 +201,16 @@ impl WeightInfo for () {
 	// Storage: ComputingWorkers FlopSet (r:1 w:1)
 	// Storage: ComputingWorkers CounterForFlopSet (r:1 w:1)
 	fn online() -> Weight {
-		// Minimum execution time: 66_000 nanoseconds.
-		Weight::from_ref_time(67_000_000)
+		// Minimum execution time: 67_000 nanoseconds.
+		Weight::from_ref_time(69_000_000)
 			.saturating_add(RocksDbWeight::get().reads(7))
 			.saturating_add(RocksDbWeight::get().writes(3))
 	}
 	// Storage: ComputingWorkers Workers (r:1 w:1)
 	// Storage: Timestamp Now (r:1 w:0)
 	fn refresh_attestation() -> Weight {
-		// Minimum execution time: 57_000 nanoseconds.
-		Weight::from_ref_time(58_000_000)
+		// Minimum execution time: 58_000 nanoseconds.
+		Weight::from_ref_time(59_000_000)
 			.saturating_add(RocksDbWeight::get().reads(2))
 			.saturating_add(RocksDbWeight::get().writes(1))
 	}
@@ -263,8 +263,8 @@ impl WeightInfo for () {
 	// Storage: ComputingWorkers FlipSet (r:1 w:1)
 	// Storage: ComputingWorkers CounterForFlipSet (r:1 w:1)
 	fn heartbeat() -> Weight {
-		// Minimum execution time: 30_000 nanoseconds.
-		Weight::from_ref_time(31_000_000)
+		// Minimum execution time: 31_000 nanoseconds.
+		Weight::from_ref_time(32_000_000)
 			.saturating_add(RocksDbWeight::get().reads(8))
 			.saturating_add(RocksDbWeight::get().writes(4))
 	}
