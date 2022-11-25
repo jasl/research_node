@@ -543,11 +543,11 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
   // We only handle finalized event
   const events = await apiAt.query.system.events();
   events.forEach(({ event }) => {
-    // if (event.section !== "computingWorkers") {
-    //   return;
-    // }
+    if (event.section !== "fakeComputing") {
+      return;
+    }
 
-    // console.log(event.toHuman());
+    console.log(event.toHuman());
   });
 });
 

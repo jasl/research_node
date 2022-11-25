@@ -25,19 +25,22 @@ macro_rules! log {
 	};
 }
 
-use frame_support::traits::Currency;
-type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+use frame_support::{
+	traits::{Currency, ConstU32},
+	BoundedVec
+};
 
-pub const MILLI_CENTS: u128 = 1_000_000;
-pub const CENTS: u128 = 1_000 * MILLI_CENTS;
-pub const UNITS: u128 = 1_000 * CENTS;
+type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+type JobId = BoundedVec<u8, ConstU32<64>>;
+
+pub const UNITS: u128 = 1_000_000_000_000;
 
 #[frame_support::pallet]
 pub mod pallet {
 	use frame_support::{pallet_prelude::*, sp_runtime::SaturatedConversion, sp_std::prelude::*, traits::Currency};
 	use frame_system::pallet_prelude::*;
 
-	use crate::{log, BalanceOf, UNITS};
+	use crate::{log, BalanceOf, UNITS, JobId};
 	use pallet_computing_workers::{
 		traits::{WorkerLifecycleHooks, WorkerManageable},
 		types::OnlinePayload,
@@ -76,6 +79,7 @@ pub mod pallet {
 		Offline { worker: T::AccountId },
 		Blocked { worker: T::AccountId },
 		Unblocked { worker: T::AccountId },
+		JobAssigned { worker: T::AccountId, job_id: JobId },
 	}
 
 	// Errors inform users that something went wrong.
@@ -87,13 +91,15 @@ pub mod pallet {
 		Blocked,
 		NotStarted,
 		InsufficientFundsForSlashing,
+		NotTheOwner,
+		WorkerNotExists,
 	}
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
 		#[pallet::weight(0)]
 		pub fn start(origin: OriginFor<T>, worker: T::AccountId) -> DispatchResult {
-			let _who = ensure_signed(origin)?; // Maybe `ensure_root` ?
+			Self::ensure_owner_or_root(origin, &worker)?;
 
 			ensure!(!<RunningWorkers<T>>::contains_key(&worker), Error::<T>::AlreadyStarted);
 			ensure!(!<BlockedWorkers<T>>::contains_key(&worker), Error::<T>::Blocked);
@@ -101,19 +107,42 @@ pub mod pallet {
 			<RunningWorkers<T>>::insert(&worker, ());
 
 			Self::deposit_event(Event::Started { worker });
-
 			Ok(())
 		}
 
 		#[pallet::weight(0)]
 		pub fn stop(origin: OriginFor<T>, worker: T::AccountId) -> DispatchResult {
-			let _who = ensure_signed(origin)?; // Maybe `ensure_root` ?
+			Self::ensure_owner_or_root(origin, &worker)?;
 
 			ensure!(<RunningWorkers<T>>::contains_key(&worker), Error::<T>::AlreadyStopped);
 
 			<RunningWorkers<T>>::remove(&worker);
 
 			Self::deposit_event(Event::Stopped { worker });
+			Ok(())
+		}
+
+		#[pallet::weight(0)]
+		pub fn assign_job(origin: OriginFor<T>, worker: T::AccountId, job_id: JobId) -> DispatchResult {
+			Self::ensure_owner_or_root(origin, &worker)?;
+
+			ensure!(<RunningWorkers<T>>::contains_key(&worker), Error::<T>::AlreadyStopped);
+
+			Self::deposit_event(Event::JobAssigned { worker, job_id });
+			Ok(())
+		}
+	}
+
+	impl<T: Config> Pallet<T> {
+		fn ensure_owner_or_root(origin: OriginFor<T>, worker: &T::AccountId) -> DispatchResult {
+			let who = ensure_signed_or_root(origin)?;
+			if let Some(worker_info) = T::WorkerManageable::worker_info(worker) {
+				if let Some(owner) = who {
+					ensure!(owner == worker_info.owner, Error::<T>::NotTheOwner)
+				}
+			} else {
+				return Err(Error::<T>::WorkerNotExists.into())
+			}
 
 			Ok(())
 		}

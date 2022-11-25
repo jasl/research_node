@@ -16,7 +16,7 @@ use frame_support::{
 use frame_system::{Account, RawOrigin};
 use sp_runtime::app_crypto::{sr25519, KeyTypeId, RuntimePublic};
 
-const DOLLARS: u128 = 100_000_000_000;
+const DOLLARS: u128 = 1_000_000_000_000;
 const WORKER_KEY_TYPE: KeyTypeId = KeyTypeId(*b"work");
 
 fn mock_online_payload_and_attestation<T: Config>(
