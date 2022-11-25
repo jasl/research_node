@@ -6,12 +6,10 @@ use super::*;
 use crate::Pallet as ComputingWorkers;
 use frame_benchmarking::{account, benchmarks, whitelisted_caller};
 use frame_system::{RawOrigin, Account};
-use frame_support::{
-	sp_runtime::{SaturatedConversion, Saturating},
-	assert_ok,
-};
+use frame_support::{sp_runtime::{SaturatedConversion, Saturating}, assert_ok, fail};
 use crate::types::{
 	AttestationMethod, AttestationPayload, ExtraOnlinePayload, NonTEEAttestation, OnlinePayload,
+	WorkerStatus, FlipFlopStage,
 };
 
 const SEED: u32 = 0;
@@ -64,11 +62,11 @@ fn add_mock_worker<T: Config>(owner: &T::AccountId) -> T::AccountId {
 }
 
 fn add_mock_online_worker<T: Config>(owner: &T::AccountId) -> T::AccountId {
-	let worker = add_mock_worker(owner);
+	let worker = add_mock_worker::<T>(owner);
 
 	let (payload, attestation) = mock_online_payload_and_attestation();
 	assert_ok!(
-		ComputingWorkers::<T>::register(
+		ComputingWorkers::<T>::online(
 			RawOrigin::Signed(worker.clone()).into(),
 			payload,
 			attestation
@@ -94,6 +92,7 @@ benchmarks! {
 		let worker_info = Workers::<T>::get(&worker).expect("WorkerInfo should has value");
 		assert_eq!(worker_info.owner, owner);
 		assert_eq!(T::Currency::reserved_balance(&worker), reserved_deposit);
+		assert_eq!(worker_info.status, WorkerStatus::Registered);
 	}
 
 	deregister {
@@ -141,7 +140,98 @@ benchmarks! {
 	verify {
 		let worker_info = Workers::<T>::get(&worker).expect("WorkerInfo should has value");
 		assert_eq!(worker_info.attestation_method, Some(AttestationMethod::NonTEE));
+		assert_eq!(worker_info.status, WorkerStatus::Online);
 	}
+
+	refresh_attestation {
+		let owner: T::AccountId = whitelisted_caller();
+		let worker = add_mock_online_worker::<T>(&owner);
+		let (payload, attestation) = mock_online_payload_and_attestation();
+		let current_block = frame_system::Pallet::<T>::block_number();
+	}: _(RawOrigin::Signed(worker.clone()), payload, attestation)
+	verify {
+		let worker_info = Workers::<T>::get(&worker).expect("WorkerInfo should has value");
+		assert_eq!(worker_info.attestation_method, Some(AttestationMethod::NonTEE));
+		assert!(worker_info.attested_at > current_block)
+	}
+
+	// This is the slow path,
+	// worker shall offline immediately instead of becoming `RequestingOffline`
+	request_offline {
+		let owner: T::AccountId = whitelisted_caller();
+		let worker = add_mock_online_worker::<T>(&owner);
+	}: _(RawOrigin::Signed(worker.clone()))
+	verify {
+		let worker_info = Workers::<T>::get(&worker).expect("WorkerInfo should has value");
+		assert_eq!(worker_info.status, WorkerStatus::Offline);
+	}
+
+	// This is the slow path,
+	// worker shall offline immediately instead of becoming `RequestingOffline`
+	request_offline_for {
+		let owner: T::AccountId = whitelisted_caller();
+		let worker = add_mock_online_worker::<T>(&owner);
+	}: _(RawOrigin::Signed(owner.clone()), worker.clone())
+	verify {
+		let worker_info = Workers::<T>::get(&worker).expect("WorkerInfo should has value");
+		assert_eq!(worker_info.status, WorkerStatus::Offline);
+	}
+
+	force_offline {
+		let owner: T::AccountId = whitelisted_caller();
+		let worker = add_mock_online_worker::<T>(&owner);
+	}: _(RawOrigin::Signed(worker.clone()))
+	verify {
+		let worker_info = Workers::<T>::get(&worker).expect("WorkerInfo should has value");
+		assert_eq!(worker_info.status, WorkerStatus::Offline);
+	}
+
+	force_offline_for {
+		let owner: T::AccountId = whitelisted_caller();
+		let worker = add_mock_online_worker::<T>(&owner);
+	}: _(RawOrigin::Signed(owner.clone()), worker.clone())
+	verify {
+		let worker_info = Workers::<T>::get(&worker).expect("WorkerInfo should has value");
+		assert_eq!(worker_info.status, WorkerStatus::Offline);
+	}
+
+	// This is the normal path
+	heartbeat {
+		let owner: T::AccountId = whitelisted_caller();
+		let worker = add_mock_online_worker::<T>(&owner);
+
+		let stage = FlipOrFlop::<T>::get();
+		// Simulate to the next stage
+		match stage {
+			FlipFlopStage::Flip => {
+				assert_eq!(FlopSet::<T>::contains_key(&worker), true);
+				FlopSet::<T>::insert(&worker, T::BlockNumber::zero());
+				FlipOrFlop::<T>::set(FlipFlopStage::Flop);
+			},
+			FlipFlopStage::Flop => {
+				assert_eq!(FlipSet::<T>::contains_key(&worker), true);
+				FlipSet::<T>::insert(&worker, T::BlockNumber::zero());
+				FlipOrFlop::<T>::set(FlipFlopStage::Flip);
+			},
+			_ => fail!("Other stages is unexpected")
+		};
+	}: _(RawOrigin::Signed(worker.clone()))
+	verify {
+		let stage = FlipOrFlop::<T>::get();
+		match stage {
+			FlipFlopStage::Flip => {
+				assert_eq!(FlipSet::<T>::contains_key(&worker), false);
+				assert_eq!(FlopSet::<T>::contains_key(&worker), true);
+			},
+			FlipFlopStage::Flop => {
+				assert_eq!(FlipSet::<T>::contains_key(&worker), true);
+				assert_eq!(FlopSet::<T>::contains_key(&worker), false);
+			},
+			_ => fail!("Other stages is unexpected")
+		};
+	}
+
+	// TODO: benchmark other paths of heartbeat
 
 	impl_benchmark_test_suite!(ComputingWorkers, crate::mock::new_test_ext(), crate::mock::Test);
 }

@@ -35,6 +35,7 @@ use crate::{
 		Attestation, AttestationError, AttestationMethod, FlipFlopStage, OnlinePayload, VerifiedAttestation,
 		WorkerInfo, WorkerStatus,
 	},
+	weights::WeightInfo,
 };
 use frame_support::{
 	dispatch::{DispatchError, DispatchResult},
@@ -111,7 +112,8 @@ mod pallet {
 		#[pallet::constant]
 		type DisallowNonTEEAttestation: Get<bool>;
 
-		// type WeightInfo: WeightInfo;
+		/// Weight information for extrinsics in this pallet.
+		type WeightInfo: WeightInfo;
 
 		/// A handler for manging worker slashing
 		type WorkerLifecycleHooks: WorkerLifecycleHooks<Self::AccountId, BalanceOf<Self>>;
@@ -295,14 +297,14 @@ mod pallet {
 		/// ## Events
 		/// The `Registered` event is emitted in case of success.
 		// TODO: #[pallet::weight(<T as Config>::WeightInfo::register())]
-		#[pallet::weight(0)]
+		#[pallet::weight(T::WeightInfo::register())]
 		#[transactional]
 		pub fn register(origin: OriginFor<T>, worker: T::AccountId, initial_deposit: BalanceOf<T>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 			Self::do_register(who, worker, initial_deposit)
 		}
 
-		#[pallet::weight(0)]
+		#[pallet::weight(T::WeightInfo::refresh_attestation())]
 		#[transactional]
 		pub fn refresh_attestation(
 			origin: OriginFor<T>,
@@ -314,7 +316,7 @@ mod pallet {
 		}
 
 		/// Deregister a computing workers.
-		#[pallet::weight(0)]
+		#[pallet::weight(T::WeightInfo::deregister())]
 		#[transactional]
 		pub fn deregister(origin: OriginFor<T>, worker: T::AccountId) -> DispatchResult {
 			let who = ensure_signed(origin)?;
@@ -322,7 +324,7 @@ mod pallet {
 		}
 
 		/// The same with balances.transfer_keep_alive(owner, worker, balance)
-		#[pallet::weight(0)]
+		#[pallet::weight(T::WeightInfo::deposit())]
 		#[transactional]
 		pub fn deposit(origin: OriginFor<T>, worker: T::AccountId, value: BalanceOf<T>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
@@ -334,7 +336,7 @@ mod pallet {
 		}
 
 		/// The same with balances.transfer_keep_alive(worker, owner, balance)
-		#[pallet::weight(0)]
+		#[pallet::weight(T::WeightInfo::withdraw())]
 		#[transactional]
 		pub fn withdraw(origin: OriginFor<T>, worker: T::AccountId, value: BalanceOf<T>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
@@ -346,7 +348,7 @@ mod pallet {
 		}
 
 		/// The worker claim for online
-		#[pallet::weight(0)]
+		#[pallet::weight(T::WeightInfo::online())]
 		#[transactional]
 		pub fn online(
 			origin: OriginFor<T>,
@@ -358,7 +360,7 @@ mod pallet {
 		}
 
 		/// The worker requesting offline
-		#[pallet::weight(0)]
+		#[pallet::weight(T::WeightInfo::request_offline())]
 		#[transactional]
 		pub fn request_offline(origin: OriginFor<T>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
@@ -366,7 +368,7 @@ mod pallet {
 		}
 
 		/// The owner (or his proxy) requesting a worker to offline
-		#[pallet::weight(0)]
+		#[pallet::weight(T::WeightInfo::request_offline_for())]
 		#[transactional]
 		pub fn request_offline_for(origin: OriginFor<T>, worker: T::AccountId) -> DispatchResult {
 			let who = ensure_signed(origin)?;
@@ -374,7 +376,7 @@ mod pallet {
 		}
 
 		/// The worker force offline, slashing will apply
-		#[pallet::weight(0)]
+		#[pallet::weight(T::WeightInfo::force_offline())]
 		#[transactional]
 		pub fn force_offline(origin: OriginFor<T>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
@@ -382,7 +384,7 @@ mod pallet {
 		}
 
 		/// The owner (or his proxy) force a worker to offline, will apply slash
-		#[pallet::weight(0)]
+		#[pallet::weight(T::WeightInfo::force_offline_for())]
 		#[transactional]
 		pub fn force_offline_for(origin: OriginFor<T>, worker: T::AccountId) -> DispatchResult {
 			let who = ensure_signed(origin)?;
@@ -390,7 +392,7 @@ mod pallet {
 		}
 
 		/// Worker report it is still online, must called by the worker
-		#[pallet::weight(0)]
+		#[pallet::weight(T::WeightInfo::heartbeat())]
 		#[transactional]
 		pub fn heartbeat(origin: OriginFor<T>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
@@ -544,7 +546,6 @@ impl<T: Config> Pallet<T> {
 		ensure!(worker_info.status == WorkerStatus::Online, Error::<T>::NotOnline);
 
 		if T::WorkerLifecycleHooks::can_offline(&worker).is_ok() {
-			// Fast path
 			T::WorkerLifecycleHooks::before_offline(&worker, false);
 
 			FlipSet::<T>::remove(&worker);

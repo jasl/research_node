@@ -95,6 +95,7 @@ impl pallet_computing_workers::Config for Test {
 	type AttestationValidityDuration = ConstU32<12>;
 	type DisallowOptOutAttestation = ConstBool<false>;
 	type DisallowNonTEEAttestation = ConstBool<false>;
+	type WeightInfo = ();
 	type WorkerLifecycleHooks = ();
 }
 

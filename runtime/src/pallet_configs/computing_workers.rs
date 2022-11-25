@@ -12,6 +12,7 @@ impl pallet_computing_workers::Config for Runtime {
 	type AttestationValidityDuration = ConstU32<432000>; // 10 block/min * 60 min * 24 hour * 30 days = 432000 block
 	type DisallowOptOutAttestation = ConstBool<true>;
 	type DisallowNonTEEAttestation = ConstBool<false>;
+	type WeightInfo = pallet_computing_workers::weights::SubstrateWeight<Runtime>;
 	#[cfg(not(feature = "runtime-benchmarks"))]
 	type WorkerLifecycleHooks = FakeComputing;
 	#[cfg(feature = "runtime-benchmarks")]

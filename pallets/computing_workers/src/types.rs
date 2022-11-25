@@ -146,6 +146,7 @@ pub struct WorkerInfo<Account, Balance, BlockNumber> {
 	/// A block number of when the worker refresh its attestation.
 	/// It may be 0 in case the worker hasn't submit
 	pub attested_at: BlockNumber,
+	// log attestation report timestamp?
 }
 
 #[derive(Encode, Decode, MaxEncodedLen, TypeInfo, RuntimeDebug, Copy, Clone, PartialEq, Eq)]
