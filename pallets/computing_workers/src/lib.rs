@@ -302,7 +302,6 @@ mod pallet {
 		///
 		/// ## Events
 		/// The `Registered` event is emitted in case of success.
-		// TODO: #[pallet::weight(<T as Config>::WeightInfo::register())]
 		#[pallet::weight(T::WeightInfo::register())]
 		#[transactional]
 		pub fn register(origin: OriginFor<T>, worker: T::AccountId, initial_deposit: BalanceOf<T>) -> DispatchResult {

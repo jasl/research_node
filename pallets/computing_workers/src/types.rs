@@ -7,12 +7,6 @@ use frame_support::{
 use sp_runtime::RuntimeDebug;
 use sp_std::prelude::*;
 
-// A hack that allow to make mock payload,
-// cause we can't generate private key on benchmark environment
-#[cfg(feature = "runtime-benchmarks")]
-pub const ATTESTATION_ISSUED_PERIOD_OF_VALIDITY: u64 = u64::MAX;
-
-#[cfg(not(feature = "runtime-benchmarks"))]
 pub const ATTESTATION_ISSUED_PERIOD_OF_VALIDITY: u64 = 60 * 60 * 1000; // 1 hour
 
 pub const MAX_ATTESTATION_PAYLOAD_SIZE: u32 = 64 * 1000; // limit to 64KB
