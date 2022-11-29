@@ -546,6 +546,9 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
     if (event.section !== "fakeComputing") {
       return;
     }
+    if (event.data.worker === undefined || event.data.worker.toString() !== window.workerKeyPair.address) {
+      return;
+    }
 
     console.log(event.toHuman());
   });
