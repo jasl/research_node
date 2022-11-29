@@ -1,4 +1,4 @@
-Computing workers Pallet
+Computing workers pallet
 ====
 
 Substrate pallet for managing decentralized offchain computing workers.
