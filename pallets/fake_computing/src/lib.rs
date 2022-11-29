@@ -29,8 +29,8 @@ use frame_support::{
 	traits::ConstU32,
 	BoundedVec
 };
+use pallet_computing_workers::BalanceOf;
 
-type BalanceOf<T> = pallet_computing_workers::BalanceOf<T>;
 type JobId = BoundedVec<u8, ConstU32<64>>;
 
 #[frame_support::pallet]
