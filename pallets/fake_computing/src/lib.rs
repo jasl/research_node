@@ -26,27 +26,20 @@ macro_rules! log {
 }
 
 use frame_support::{
-	traits::ConstU32,
-	BoundedVec
+	sp_std::prelude::*,
+	sp_runtime::Saturating,
 };
-use pallet_computing_workers::BalanceOf;
-
-type JobId = BoundedVec<u8, ConstU32<64>>;
+use pallet_computing_workers::{
+	traits::{WorkerLifecycleHooks, WorkerManageable},
+	types::OnlinePayload,
+	BalanceOf,
+};
 
 #[frame_support::pallet]
 pub mod pallet {
-	use frame_support::{
-		pallet_prelude::*,
-		sp_runtime::Saturating,
-		sp_std::prelude::*,
-	};
+	use super::*;
+	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
-
-	use crate::{log, BalanceOf, JobId};
-	use pallet_computing_workers::{
-		traits::{WorkerLifecycleHooks, WorkerManageable},
-		types::OnlinePayload,
-	};
 
 	#[pallet::pallet]
 	#[pallet::generate_store(pub(super) trait Store)]
@@ -81,7 +74,6 @@ pub mod pallet {
 		Offline { worker: T::AccountId },
 		Blocked { worker: T::AccountId },
 		Unblocked { worker: T::AccountId },
-		JobAssigned { worker: T::AccountId, job_id: JobId },
 	}
 
 	// Errors inform users that something went wrong.
@@ -121,16 +113,6 @@ pub mod pallet {
 			<RunningWorkers<T>>::remove(&worker);
 
 			Self::deposit_event(Event::Stopped { worker });
-			Ok(())
-		}
-
-		#[pallet::weight(0)]
-		pub fn assign_job(origin: OriginFor<T>, worker: T::AccountId, job_id: JobId) -> DispatchResult {
-			Self::ensure_owner_or_root(origin, &worker)?;
-
-			ensure!(<RunningWorkers<T>>::contains_key(&worker), Error::<T>::AlreadyStopped);
-
-			Self::deposit_event(Event::JobAssigned { worker, job_id });
 			Ok(())
 		}
 	}
