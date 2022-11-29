@@ -1,4 +1,4 @@
-use crate as pallet_fake_computing;
+use crate as pallet_simple_computing;
 
 use frame_support::{assert_ok, parameter_types, traits::{OnFinalize, OnInitialize}};
 use frame_system::EnsureRoot;
@@ -31,7 +31,7 @@ frame_support::construct_runtime!(
 		Timestamp: pallet_timestamp,
 		RandomnessCollectiveFlip: pallet_randomness_collective_flip,
 		ComputingWorkers: pallet_computing_workers,
-		FakeComputing: pallet_fake_computing,
+		SimpleComputing: pallet_simple_computing,
 	}
 );
 
@@ -98,14 +98,14 @@ impl pallet_computing_workers::Config for Test {
 	type ValidateWorkerImplHash = ConstBool<false>;
 	type GovernanceOrigin = EnsureRoot<Self::AccountId>;
 	type WeightInfo = ();
-	type WorkerLifecycleHooks = FakeComputing;
+	type WorkerLifecycleHooks = SimpleComputing;
 }
 
 parameter_types! {
 	pub const SlashingCardinal: Balance = DOLLARS;
 }
 
-impl pallet_fake_computing::Config for Test {
+impl pallet_simple_computing::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type WorkerManageable = ComputingWorkers;
 	type SlashingCardinal = SlashingCardinal;

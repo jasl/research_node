@@ -1,11 +1,9 @@
-use crate::types::{OnlinePayload, WorkerInfo};
+use crate::{types::{OnlinePayload, WorkerInfo}, BalanceOf, NegativeImbalanceOf, Config};
 use frame_support::{
 	dispatch::DispatchResult,
-	traits::{tokens::Balance, Imbalance},
+	traits::Imbalance,
 };
-use scale_codec::MaxEncodedLen;
-use sp_runtime::{traits::MaybeSerializeDeserialize, FixedPointOperand};
-use sp_std::fmt::Debug;
+use sp_runtime::traits::Zero;
 
 /// Trait describing something that implements a hook for any operations to perform when a staker is
 /// slashed.
@@ -93,46 +91,31 @@ impl<AccountId, Balance> WorkerLifecycleHooks<AccountId, Balance> for () {
 	}
 }
 
-pub trait WorkerManageable<AccountId, BlockNumber> {
-	/// The balance of an account.
-	type Balance: Balance + MaybeSerializeDeserialize + Debug + MaxEncodedLen + FixedPointOperand;
+pub trait WorkerManageable<T: Config> {
+	fn worker_info(worker: &T::AccountId) -> Option<WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>>;
 
-	/// The opaque token type for an imbalance. This is returned by unbalanced operations
-	/// and must be dealt with. It may be dropped but cannot be cloned.
-	type PositiveImbalance: Imbalance<Self::Balance, Opposite = Self::NegativeImbalance>;
+	fn reward(worker: &T::AccountId, source: &T::AccountId, value: BalanceOf<T>) -> DispatchResult;
 
-	/// The opaque token type for an imbalance. This is returned by unbalanced operations
-	/// and must be dealt with. It may be dropped but cannot be cloned.
-	type NegativeImbalance: Imbalance<Self::Balance, Opposite = Self::PositiveImbalance>;
+	fn slash(worker: &T::AccountId, value: BalanceOf<T>) -> (NegativeImbalanceOf<T>, BalanceOf<T>);
 
-	fn worker_info(worker: &AccountId) -> Option<WorkerInfo<AccountId, Self::Balance, BlockNumber>>;
-
-	fn reward(worker: &AccountId, source: &AccountId, value: Self::Balance) -> DispatchResult;
-
-	fn slash(worker: &AccountId, value: Self::Balance) -> (Self::NegativeImbalance, Self::Balance);
-
-	fn offline(worker: &AccountId) -> DispatchResult;
+	fn offline(worker: &T::AccountId) -> DispatchResult;
 }
 
 #[cfg(feature = "std")]
-impl<AccountId, BlockNumber> WorkerManageable<AccountId, BlockNumber> for () {
-	type Balance = u128;
-	type PositiveImbalance = ();
-	type NegativeImbalance = ();
-
-	fn worker_info(_: &AccountId) -> Option<WorkerInfo<AccountId, Self::Balance, BlockNumber>> {
+impl<T:Config> WorkerManageable<T> for () {
+	fn worker_info(_: &T::AccountId) -> Option<WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>> {
 		None
 	}
 
-	fn reward(_: &AccountId, _: &AccountId, _: Self::Balance) -> DispatchResult {
+	fn reward(_: &T::AccountId, _: &T::AccountId, _: BalanceOf<T>) -> DispatchResult {
 		Ok(())
 	}
 
-	fn slash(_: &AccountId, _: Self::Balance) -> (Self::NegativeImbalance, Self::Balance) {
-		((), 0)
+	fn slash(_: &T::AccountId, _: BalanceOf<T>) -> (NegativeImbalanceOf<T>, BalanceOf<T>) {
+		(NegativeImbalanceOf::<T>::zero(), BalanceOf::<T>::zero())
 	}
 
-	fn offline(_: &AccountId) -> DispatchResult {
+	fn offline(_: &T::AccountId) -> DispatchResult {
 		Ok(())
 	}
 }

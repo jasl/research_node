@@ -49,10 +49,10 @@ use sp_io::crypto::sr25519_verify;
 use sp_runtime::{traits::Zero, SaturatedConversion, Saturating};
 use sp_std::prelude::*;
 
-type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
-type PositiveImbalanceOf<T> =
+pub type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+pub type PositiveImbalanceOf<T> =
 	<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::PositiveImbalance;
-type NegativeImbalanceOf<T> =
+pub type NegativeImbalanceOf<T> =
 	<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::NegativeImbalance;
 
 #[frame_support::pallet]
@@ -974,11 +974,7 @@ impl<T: Config> Pallet<T> {
 	}
 }
 
-impl<T: Config> WorkerManageable<T::AccountId, T::BlockNumber> for Pallet<T> {
-	type Balance = BalanceOf<T>;
-	type PositiveImbalance = PositiveImbalanceOf<T>;
-	type NegativeImbalance = NegativeImbalanceOf<T>;
-
+impl<T: Config> WorkerManageable<T> for Pallet<T> {
 	fn worker_info(worker: &T::AccountId) -> Option<WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>> {
 		Workers::<T>::get(worker)
 	}

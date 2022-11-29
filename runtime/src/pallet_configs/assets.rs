@@ -18,9 +18,10 @@ parameter_types! {
 
 impl pallet_assets::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type Balance = Balance;
+	type Balance = u128;
 	type RemoveItemsLimit = ConstU32<1000>;
-	type AssetId = AssetId;
+	type AssetId = u32;
+	type AssetIdParameter = scale_codec::Compact<u32>;
 	type Currency = Balances;
 	type CreateOrigin = AsEnsureOriginWithArg<EnsureSigned<AccountId>>;
 	type ForceOrigin = EnsureRoot<AccountId>;
@@ -33,4 +34,6 @@ impl pallet_assets::Config for Runtime {
 	type Freezer = ();
 	type Extra = ();
 	type WeightInfo = pallet_assets::weights::SubstrateWeight<Runtime>;
+	#[cfg(feature = "runtime-benchmarks")]
+	type BenchmarkHelper = ();
 }
