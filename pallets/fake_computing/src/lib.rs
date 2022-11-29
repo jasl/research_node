@@ -31,8 +31,7 @@ use frame_support::{
 };
 use pallet_computing_workers::{
 	traits::{WorkerLifecycleHooks, WorkerManageable},
-	types::OnlinePayload,
-	BalanceOf,
+	types::{BalanceOf, OnlinePayload},
 };
 
 #[frame_support::pallet]

@@ -1,5 +1,5 @@
 #[allow(unused)]
-use crate::{mock::*, types::*, Error, Event};
+use crate::{mock::*, types::*, Config, Error, Event};
 #[allow(unused)]
 use frame_support::{assert_err, assert_noop, assert_ok};
 #[allow(unused)]
@@ -18,7 +18,7 @@ fn register_worker_for(
 	owner: AccountId,
 	worker: AccountId,
 	initial_deposit: Balance,
-) -> WorkerInfo<AccountId, Balance, BlockNumber> {
+) -> WorkerInfo<Test> {
 	let owner_balance = Balances::free_balance(owner);
 
 	assert_ok!(ComputingWorkers::register(RuntimeOrigin::signed(owner), worker, initial_deposit));

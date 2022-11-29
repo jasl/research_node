@@ -1,9 +1,8 @@
-use crate::{types::{OnlinePayload, WorkerInfo}, BalanceOf, NegativeImbalanceOf, Config};
-use frame_support::{
-	dispatch::DispatchResult,
-	traits::Imbalance,
+use frame_support::dispatch::DispatchResult;
+use crate::{
+	types::{OnlinePayload, WorkerInfo, BalanceOf, NegativeImbalanceOf},
+	Config,
 };
-use sp_runtime::traits::Zero;
 
 /// Trait describing something that implements a hook for any operations to perform when a staker is
 /// slashed.
@@ -92,7 +91,7 @@ impl<AccountId, Balance> WorkerLifecycleHooks<AccountId, Balance> for () {
 }
 
 pub trait WorkerManageable<T: Config> {
-	fn worker_info(worker: &T::AccountId) -> Option<WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>>;
+	fn worker_info(worker: &T::AccountId) -> Option<WorkerInfo<T>>;
 
 	fn reward(worker: &T::AccountId, source: &T::AccountId, value: BalanceOf<T>) -> DispatchResult;
 
@@ -102,8 +101,13 @@ pub trait WorkerManageable<T: Config> {
 }
 
 #[cfg(feature = "std")]
+use frame_support::traits::Imbalance;
+#[cfg(feature = "std")]
+use sp_runtime::traits::Zero;
+
+#[cfg(feature = "std")]
 impl<T:Config> WorkerManageable<T> for () {
-	fn worker_info(_: &T::AccountId) -> Option<WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>> {
+	fn worker_info(_: &T::AccountId) -> Option<WorkerInfo<T>> {
 		None
 	}
 
