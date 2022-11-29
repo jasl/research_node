@@ -5,8 +5,9 @@ parameter_types! {
 	pub const SlashingCardinal: Balance = UNITS;
 }
 
-impl pallet_fake_computing::Config for Runtime {
+impl pallet_simple_computing::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type WorkerManageable = ComputingWorkers;
+	type JobId = u32;
 	type SlashingCardinal = SlashingCardinal;
 }

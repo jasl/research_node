@@ -23,6 +23,6 @@ mod assets;
 mod uniques;
 
 mod computing_workers;
-mod fake_computing; // TEST ONLY USAGE
+mod simple_computing;
 
 mod sudo;

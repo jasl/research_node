@@ -108,6 +108,7 @@ parameter_types! {
 impl pallet_simple_computing::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type WorkerManageable = ComputingWorkers;
+	type JobId = u32;
 	type SlashingCardinal = SlashingCardinal;
 }
 

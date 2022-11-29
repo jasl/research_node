@@ -58,7 +58,7 @@ pallet-assets = { git = "https://github.com/paritytech/substrate", branch = "mas
 pallet-uniques = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
 
 pallet-computing_workers = { path = "../pallets/computing_workers", default-features = false }
-pallet-fake_computing = { path = "../pallets/fake_computing", default-features = false }
+pallet-simple_computing = { path = "../pallets/simple_computing", default-features = false }
 
 # Local Dependencies
 node-primitives = { path = "../primitives", default-features = false }
@@ -109,7 +109,7 @@ std = [
 	"pallet-assets/std",
 	"pallet-uniques/std",
 	"pallet-computing_workers/std",
-	"pallet-fake_computing/std",
+	"pallet-simple_computing/std",
 ]
 runtime-benchmarks = [
 	"sp-runtime/runtime-benchmarks",
@@ -153,5 +153,5 @@ try-runtime = [
 	"pallet-assets/try-runtime",
 	"pallet-uniques/try-runtime",
 	"pallet-computing_workers/try-runtime",
-	"pallet-fake_computing/try-runtime",
+	"pallet-simple_computing/try-runtime",
 ]
