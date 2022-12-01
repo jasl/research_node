@@ -2,37 +2,39 @@ use scale_codec::{Encode, Decode, MaxEncodedLen};
 use scale_info::TypeInfo;
 use frame_support::{
 	sp_std::prelude::*,
-	sp_runtime::Saturating,
 	BoundedVec,
 	RuntimeDebug,
 };
 
-use crate::macros::impl_auto_incremental;
-
-pub trait AutoIncremental {
-	fn increment(&self) -> Self;
-	fn initial_value() -> Self;
-}
-impl_auto_incremental!(u8, u16, u32, u64, u128, i8, i16, i32, i64, i128);
+pub type JobPayloadVec<T> = BoundedVec<u8, <T as crate::Config>::MaxJobPayloadLen>;
 
 #[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 pub enum JobStatus {
 	Created,
-	Enqueued,
+	// Enqueued, // Just note that no queue in simple computing
 	Started,
-	Success,
-	Failed,
+	Completed,
 	Timeout,
 	Cancelled,
 }
 
+#[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+pub enum JobResult {
+	Success,
+	Failed,
+	Errored,
+}
+
 #[derive(Encode, Decode, MaxEncodedLen, TypeInfo, RuntimeDebug, Clone, PartialEq, Eq)]
-pub struct Job<Account, BlockNumber> {
+#[scale_info(skip_type_params(T))]
+pub struct Job<T: crate::Config>{
 	pub status: JobStatus,
-	pub created_by: Account,
-	pub created_at: Option<BlockNumber>,
-	pub enqueued_at: Option<BlockNumber>,
-	pub started_at: Option<BlockNumber>,
-	pub completed_at: Option<BlockNumber>,
-	// pub payload
+	pub result: Option<JobResult>,
+	pub created_by: T::AccountId,
+	pub created_at: Option<T::BlockNumber>,
+	// pub assigned_at: Option<T::BlockNumber>, // Just note that no assign in simple computing
+	// pub enqueued_at: Option<T::BlockNumber>, // Just note that no queue in simple computing
+	pub started_at: Option<T::BlockNumber>,
+	pub completed_at: Option<T::BlockNumber>,
+	pub payload: JobPayloadVec<T>
 }

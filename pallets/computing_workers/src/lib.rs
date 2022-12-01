@@ -974,6 +974,10 @@ impl<T: Config> WorkerManageable<T> for Pallet<T> {
 		Workers::<T>::get(worker)
 	}
 
+	fn worker_exists(worker: &T::AccountId) -> bool {
+		Workers::<T>::contains_key(worker)
+	}
+
 	fn reward(worker: &T::AccountId, source: &T::AccountId, value: BalanceOf<T>) -> DispatchResult {
 		<T as Config>::Currency::transfer(source, worker, value, ExistenceRequirement::KeepAlive)
 	}

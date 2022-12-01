@@ -1,7 +1,7 @@
 import { parse } from "https://deno.land/std/flags/mod.ts";
 import * as log from "https://deno.land/std/log/mod.ts";
 import * as path from "https://deno.land/std/path/mod.ts";
-import { BN, hexToU8a, isHex, u8aToHex } from "https://deno.land/x/polkadot/util/mod.ts";
+import { BN, hexToU8a, isHex, u8aToHex, u8aToString } from "https://deno.land/x/polkadot/util/mod.ts";
 import { cryptoWaitReady, mnemonicGenerate } from "https://deno.land/x/polkadot/util-crypto/mod.ts";
 import { KeyringPair } from "https://deno.land/x/polkadot/keyring/types.ts";
 import { ApiPromise, HttpProvider, Keyring, WsProvider } from "https://deno.land/x/polkadot/api/mod.ts";
@@ -212,6 +212,13 @@ function createSubstrateApi(rpcUrl: string): ApiPromise | null {
         attestation_method: "Option<AttestationMethod>",
         attested_at: "BlockNumber",
       },
+      JobResult: {
+        _enum: [
+          "Success",
+          "Failed",
+          "Errored",
+        ],
+      },
     },
   });
 }
@@ -239,6 +246,14 @@ enum FlipFlopStage {
   // FlopToFlip = "FlopToFlip",
 }
 
+enum JobStatus {
+  Created = "Created",
+  Started = "Started",
+  Completed = "Completed",
+  // Timeout = "Timeout",
+  // Cancelled = "Cancelled",
+}
+
 function numberToBalance(value: BN | string | number) {
   const bn1e12 = new BN(10).pow(new BN(12));
   return new BN(value.toString()).mul(bn1e12);
@@ -249,6 +264,121 @@ function balanceToNumber(value: BN | string) {
   const bnValue = isHex(value) ? new BN(hexToU8a(value), "hex") : new BN(value.toString());
   // May overflow if the user too rich
   return bnValue.div(bn1e9).toNumber() / 1e3;
+}
+
+async function handleJob() {
+  const logger = log.getLogger("background");
+  const api = window.substrateApi;
+  const job = window.locals.currentJob;
+
+  if (job.status === JobStatus.Completed) {
+    window.locals.sentCompleteJobAt = undefined;
+    window.locals.runningJob = undefined;
+
+    if (window.locals.sentRemoveJobAt && window.locals.sentRemoveJobAt >= window.finalizedBlockNumber) {
+      logger.debug("Waiting remove job extrinsic finalize");
+
+      return;
+    }
+
+    logger.info(`Sending "simple_computing.remove_job()`);
+    const txPromise = api.tx.simpleComputing.removeJob(window.workerKeyPair.address);
+    logger.debug(`Call hash: ${txPromise.toHex()}`);
+    const txHash = await txPromise.signAndSend(window.workerKeyPair, { nonce: -1 });
+    logger.info(`Transaction hash: ${txHash.toHex()}`);
+    // TODO: Catch whether failed
+
+    window.locals.sentRemoveJobAt = window.latestBlockNumber;
+
+    return;
+  } else {
+    window.locals.sentRemoveJobAt = undefined;
+  }
+
+  if (job.status === JobStatus.Started && window.locals.sentCompleteJobAt) {
+    logger.debug("Waiting complete job extrinsic finalize");
+
+    return;
+  }
+
+  // TODO: Handle timeout or canceled
+
+  if (window.locals.runningJob) {
+    console.log("Job is running...");
+    return;
+  }
+
+  if (job.status === JobStatus.Created) {
+    if (window.locals.sentStartJobAt && window.locals.sentStartJobAt >= window.finalizedBlockNumber) {
+      logger.debug("Waiting start job extrinsic finalize");
+
+      return;
+    }
+
+    logger.info("new job incoming");
+
+    logger.info(`Sending "simple_computing.start_job()`);
+    const txPromise = api.tx.simpleComputing.startJob();
+    logger.debug(`Call hash: ${txPromise.toHex()}`);
+    const txHash = await txPromise.signAndSend(window.workerKeyPair, { nonce: -1 });
+    logger.info(`Transaction hash: ${txHash.toHex()}`);
+    // TODO: Catch whether failed
+
+    window.locals.sentStartJobAt = window.latestBlockNumber;
+
+    return;
+  }
+
+  if (job.status === JobStatus.Started && window.locals.sentStartJobAt !== undefined) {
+    window.locals.sentStartJobAt = undefined;
+  }
+
+  // Job started
+  // TODO: Spawn the job worker, ensure its uniqueness,
+  console.log(job)
+
+  const jobWorker = new Worker(new URL("./data/job.ts", import.meta.url).href, {
+    type: "module",
+    // deno: {
+    //   permissions: {
+    //     env: false,
+    //     hrtime: false,
+    //     net: "inherit",
+    //     ffi: false,
+    //     read: false,
+    //     run: false,
+    //     write: false,
+    //   },
+    // },
+  });
+  jobWorker.onerror = (e) => {
+    // We use try...catch to wrap onmessage, so this event shouldn't happen
+    logger.error(e.message);
+  };
+  jobWorker.onmessageerror = (e) => {
+    // Don't know how to trigger this error
+    logger.error(e);
+  };
+  jobWorker.onmessage = async (e) => {
+    // console.log("On message")
+    // console.log(e.data)
+
+    // TODO:
+    const jobResult = api.createType("JobResult", "Success");
+
+    logger.info(`Sending "simple_computing.complete_job()`);
+    const txPromise = api.tx.simpleComputing.completeJob(jobResult);
+    logger.debug(`Call hash: ${txPromise.toHex()}`);
+    const txHash = await txPromise.signAndSend(window.workerKeyPair, { nonce: -1 });
+    logger.info(`Transaction hash: ${txHash.toHex()}`);
+    // TODO: Catch whether failed
+
+    window.locals.sentCompleteJobAt = window.latestBlockNumber;
+  };
+
+  window.locals.runningJob = jobWorker;
+
+  jobWorker.postMessage(job.payload);
 }
 
 if (parsedArgs.version) {
@@ -336,6 +466,12 @@ interface Locals {
   sentOnlineAt?: number;
   sentHeartbeatAt?: number;
   sentRefreshAttestationAt?: number;
+  sentStartJobAt?: number;
+  sentCompleteJobAt?: number;
+  sentRemoveJobAt?: number;
+
+  currentJob?: any;
+  runningJob?: Worker;
 }
 
 declare global {
@@ -540,18 +676,28 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
     }
   }
 
-  // We only handle finalized event
-  const events = await apiAt.query.system.events();
-  events.forEach(({ event }) => {
-    if (event.section !== "fakeComputing") {
-      return;
-    }
-    if (event.data.worker === undefined || event.data.worker.toString() !== window.workerKeyPair.address) {
-      return;
-    }
+  // // We only handle finalized event
+  // const events = await apiAt.query.system.events();
+  // events.forEach(({ event }) => {
+  //   if (event.section !== "simpleComputing") {
+  //     return;
+  //   }
+  //   if (event.data.worker === undefined || event.data.worker.toString() !== window.workerKeyPair.address) {
+  //     return;
+  //   }
+  //
+  //   console.log(event.toHuman());
+  // });
 
-    console.log(event.toHuman());
-  });
+  // We only handle finalized job
+  const job = (await apiAt.query.simpleComputing.assignedJobs(window.workerKeyPair.address)).unwrapOr(null);
+  if (job) {
+    const jsonifyJob = job.toJSON();
+    jsonifyJob.payload = u8aToString(job.payload);
+    window.locals.currentJob = jsonifyJob
+
+    await handleJob();
+  }
 });
 
 const router = new Router();

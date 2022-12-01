@@ -93,6 +93,8 @@ impl<AccountId, Balance> WorkerLifecycleHooks<AccountId, Balance> for () {
 pub trait WorkerManageable<T: Config> {
 	fn worker_info(worker: &T::AccountId) -> Option<WorkerInfo<T>>;
 
+	fn worker_exists(worker: &T::AccountId) -> bool;
+
 	fn reward(worker: &T::AccountId, source: &T::AccountId, value: BalanceOf<T>) -> DispatchResult;
 
 	fn slash(worker: &T::AccountId, value: BalanceOf<T>) -> (NegativeImbalanceOf<T>, BalanceOf<T>);
@@ -109,6 +111,10 @@ use sp_runtime::traits::Zero;
 impl<T:Config> WorkerManageable<T> for () {
 	fn worker_info(_: &T::AccountId) -> Option<WorkerInfo<T>> {
 		None
+	}
+
+	fn worker_exists(_: &T::AccountId) -> bool {
+		false
 	}
 
 	fn reward(_: &T::AccountId, _: &T::AccountId, _: BalanceOf<T>) -> DispatchResult {

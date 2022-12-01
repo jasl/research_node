@@ -102,13 +102,14 @@ impl pallet_computing_workers::Config for Test {
 }
 
 parameter_types! {
+	pub const MaxJobPayloadLen: u32 = 128 * 1000;
 	pub const SlashingCardinal: Balance = DOLLARS;
 }
 
 impl pallet_simple_computing::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type WorkerManageable = ComputingWorkers;
-	type JobId = u32;
+	type MaxJobPayloadLen = MaxJobPayloadLen;
 	type SlashingCardinal = SlashingCardinal;
 }
 

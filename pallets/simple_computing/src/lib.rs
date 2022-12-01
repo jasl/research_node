@@ -2,7 +2,6 @@
 
 pub use pallet::*;
 
-pub mod macros;
 pub mod types;
 
 #[cfg(test)]
@@ -27,12 +26,9 @@ macro_rules! log {
 
 use pallet_computing_workers::{
 	traits::{WorkerLifecycleHooks, WorkerManageable},
-	types::OnlinePayload,
-	BalanceOf,
+	types::{BalanceOf, OnlinePayload},
 };
-use crate::{
-	types::{AutoIncremental, Job}
-};
+use crate::types::{Job, JobStatus, JobResult, JobPayloadVec};
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -52,64 +48,181 @@ pub mod pallet {
 
 		type WorkerManageable: WorkerManageable<Self>;
 
-		type JobId: Member + Parameter + MaxEncodedLen + Copy + AutoIncremental;
+		type MaxJobPayloadLen: Get<u32>;
 
 		#[pallet::constant]
 		type SlashingCardinal: Get<BalanceOf<Self>>;
 	}
 
 	#[pallet::storage]
-	pub(crate) type NextJobId<T: Config> = StorageMap<_, Identity, T::AccountId, T::JobId>;
-
-	#[pallet::storage]
-	pub(crate) type WorkingJobs<T: Config> = StorageDoubleMap<
+	#[pallet::getter(fn assigned_jobs)]
+	pub(crate) type AssignedJobs<T: Config> = StorageMap<
 		_,
 		Identity, T::AccountId,
-		Identity, T::JobId,
-		Job<T::AccountId, T::BlockNumber>
+		Job<T>
 	>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
 		Slashed { worker: T::AccountId, amount: BalanceOf<T> },
-		JobAssigned { worker: T::AccountId, job_id: T::JobId },
+		JobAssigned { worker: T::AccountId },
+		JobStarted { worker: T::AccountId },
+		JobCompleted { worker: T::AccountId, result: JobResult },
+		JobRemoved { worker: T::AccountId },
 	}
 
 	// Errors inform users that something went wrong.
 	#[pallet::error]
 	pub enum Error<T> {
 		InsufficientFundsForSlashing,
+		NoPermission,
 		NotTheOwner,
 		WorkerNotExists,
+		JobNotExists,
+		AlreadyAssigned,
+		AlreadyStarted,
+		CantRemove,
 	}
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
 		#[pallet::weight(0)]
-		pub fn assign_job(
+		pub fn create_job(
 			origin: OriginFor<T>,
 			worker: T::AccountId,
-			job: Job<T::AccountId, T::BlockNumber>
+			payload: JobPayloadVec<T>,
 		) -> DispatchResult {
-			Self::ensure_owner_or_root(origin, &worker)?;
+			let who = ensure_signed(origin)?;
+			Self::ensure_owner(&who, &worker)?;
 
-			// TODO:
+			ensure!(
+				!AssignedJobs::<T>::contains_key(&worker),
+				Error::<T>::AlreadyAssigned
+			);
+
+			let job = Job {
+				status: JobStatus::Created,
+				result: None,
+				created_by: who.clone(),
+				created_at: Some(frame_system::Pallet::<T>::block_number()),
+				started_at: None,
+				completed_at: None,
+				payload,
+			};
+			AssignedJobs::<T>::insert(&worker, job);
+
+			Self::deposit_event(Event::JobAssigned { worker });
 
 			Ok(())
 		}
+
+		#[pallet::weight(0)]
+		pub fn start_job(origin: OriginFor<T>) -> DispatchResult {
+			let worker = ensure_signed(origin)?;
+			// ensure worker or owner
+			Self::ensure_worker(&worker)?;
+
+			let Some(mut job) = AssignedJobs::<T>::get(&worker) else {
+				return Err(Error::<T>::JobNotExists.into())
+			};
+
+			ensure!(
+				job.status == JobStatus::Created,
+				Error::<T>::AlreadyStarted
+			);
+
+			job.status = JobStatus::Started;
+			job.started_at = Some(frame_system::Pallet::<T>::block_number());
+
+			AssignedJobs::<T>::insert(&worker, job);
+
+			Self::deposit_event(Event::JobStarted { worker });
+
+			Ok(())
+		}
+
+		#[pallet::weight(0)]
+		pub fn complete_job(origin: OriginFor<T>, result: JobResult) -> DispatchResult {
+			let worker = ensure_signed(origin)?;
+			Self::ensure_worker(&worker)?;
+
+			let Some(mut job) = AssignedJobs::<T>::get(&worker) else {
+				return Err(Error::<T>::JobNotExists.into())
+			};
+
+			ensure!(
+				job.status == JobStatus::Started,
+				Error::<T>::AlreadyStarted
+			);
+
+			job.status = JobStatus::Completed;
+			job.result = Some(result);
+			job.completed_at = Some(frame_system::Pallet::<T>::block_number());
+
+			AssignedJobs::<T>::insert(&worker, job);
+
+			Self::deposit_event(Event::JobCompleted { worker, result });
+
+			Ok(())
+		}
+
+		#[pallet::weight(0)]
+		pub fn remove_job(origin: OriginFor<T>, worker: T::AccountId) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+
+			let Some(worker_info) = T::WorkerManageable::worker_info(&worker) else {
+				return Err(Error::<T>::WorkerNotExists.into())
+			};
+
+			ensure!(
+				who == worker || who == worker_info.owner,
+				Error::<T>::NoPermission
+			);
+
+			let Some(job) = AssignedJobs::<T>::get(&worker) else {
+				return Err(Error::<T>::JobNotExists.into())
+			};
+
+			ensure!(
+				match job.status {
+					JobStatus::Created |
+					JobStatus::Completed |
+					JobStatus::Timeout |
+					JobStatus::Cancelled => true,
+					_ => false
+				},
+				Error::<T>::CantRemove
+			);
+
+			AssignedJobs::<T>::remove(&worker);
+
+			Self::deposit_event(Event::JobRemoved { worker });
+
+			Ok(())
+		}
+
+		// TODO: Cancel Job (called by the owner)
+		// TODO: Heartbeat for the job, or it will be timeout
+		// TODO: How to clean up timeout jobs and slash those workers?
 	}
 
 	impl<T: Config> Pallet<T> {
-		fn ensure_owner_or_root(origin: OriginFor<T>, worker: &T::AccountId) -> DispatchResult {
-			let who = ensure_signed_or_root(origin)?;
+		fn ensure_owner(who: &T::AccountId, worker: &T::AccountId) -> DispatchResult {
 			if let Some(worker_info) = T::WorkerManageable::worker_info(worker) {
-				if let Some(owner) = who {
-					ensure!(owner == worker_info.owner, Error::<T>::NotTheOwner)
-				}
+				ensure!(who == &worker_info.owner, Error::<T>::NotTheOwner);
 			} else {
 				return Err(Error::<T>::WorkerNotExists.into())
 			}
+
+			Ok(())
+		}
+
+		fn ensure_worker(who: &T::AccountId) -> DispatchResult {
+			ensure!(
+				T::WorkerManageable::worker_exists(who),
+				Error::<T>::WorkerNotExists
+			);
 
 			Ok(())
 		}
