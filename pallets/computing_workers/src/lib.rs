@@ -526,7 +526,7 @@ impl<T: Config> Pallet<T> {
 	/// 6 Do `can_online` hook, will pass the payload
 	/// Then
 	/// 2 Update worker's info, persists to storage
-	/// 3 Set flipflop
+	/// 3 Set flip-flop
 	pub fn do_online(worker: T::AccountId, payload: OnlinePayload, attestation: Option<Attestation>) -> DispatchResult {
 		let mut worker_info = Workers::<T>::get(&worker).ok_or(Error::<T>::NotExists)?;
 		Self::ensure_worker(&worker, &worker_info)?;
@@ -576,7 +576,7 @@ impl<T: Config> Pallet<T> {
 
 		Workers::<T>::insert(&worker, worker_info);
 
-		let next_heartbeat = Self::flipflop_for_online(&worker);
+		let next_heartbeat = Self::flip_flop_for_online(&worker);
 
 		Self::deposit_event(Event::<T>::Online {
 			worker: worker.clone(),
@@ -823,7 +823,7 @@ impl<T: Config> Pallet<T> {
 		});
 	}
 
-	fn flipflop_for_online(worker: &T::AccountId) -> T::BlockNumber {
+	fn flip_flop_for_online(worker: &T::AccountId) -> T::BlockNumber {
 		let current_block = frame_system::Pallet::<T>::block_number();
 
 		let next_heartbeat = Self::generate_next_heartbeat_block(current_block);
