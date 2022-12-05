@@ -1,10 +1,6 @@
-use scale_codec::{Encode, Decode, MaxEncodedLen};
+use frame_support::{sp_std::prelude::*, BoundedVec, RuntimeDebug};
+use scale_codec::{Decode, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
-use frame_support::{
-	sp_std::prelude::*,
-	BoundedVec,
-	RuntimeDebug,
-};
 
 pub type JobPayloadVec<T> = BoundedVec<u8, <T as crate::Config>::MaxJobPayloadLen>;
 
@@ -27,7 +23,7 @@ pub enum JobResult {
 
 #[derive(Encode, Decode, MaxEncodedLen, TypeInfo, RuntimeDebug, Clone, PartialEq, Eq)]
 #[scale_info(skip_type_params(T))]
-pub struct Job<T: crate::Config>{
+pub struct Job<T: crate::Config> {
 	pub status: JobStatus,
 	pub result: Option<JobResult>,
 	pub created_by: T::AccountId,
@@ -36,5 +32,5 @@ pub struct Job<T: crate::Config>{
 	// pub enqueued_at: Option<T::BlockNumber>, // Just note that no queue in simple computing
 	pub started_at: Option<T::BlockNumber>,
 	pub completed_at: Option<T::BlockNumber>,
-	pub payload: JobPayloadVec<T>
+	pub payload: JobPayloadVec<T>,
 }

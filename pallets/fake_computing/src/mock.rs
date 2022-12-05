@@ -1,6 +1,9 @@
 use crate as pallet_fake_computing;
 
-use frame_support::{assert_ok, parameter_types, traits::{OnFinalize, OnInitialize}};
+use frame_support::{
+	assert_ok, parameter_types,
+	traits::{OnFinalize, OnInitialize},
+};
 use frame_system::EnsureRoot;
 use sp_core::{ConstBool, ConstU128, ConstU16, ConstU32, ConstU64, H256};
 use sp_runtime::{

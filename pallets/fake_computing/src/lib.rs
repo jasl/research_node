@@ -25,13 +25,10 @@ macro_rules! log {
 	};
 }
 
-use frame_support::{
-	sp_std::prelude::*,
-	sp_runtime::Saturating,
-};
+use frame_support::{sp_runtime::Saturating, sp_std::prelude::*};
 use pallet_computing_workers::{
 	traits::{WorkerLifecycleHooks, WorkerManageable},
-	types::{BalanceOf, OnlinePayload, OfflineReason},
+	types::{BalanceOf, OfflineReason, OnlinePayload},
 };
 
 #[frame_support::pallet]
@@ -165,7 +162,10 @@ pub mod pallet {
 			}
 
 			if reason != OfflineReason::Graceful {
-				<T::WorkerManageable as WorkerManageable<_>>::slash(worker, T::SlashingCardinal::get().saturating_mul(10u32.into()));
+				<T::WorkerManageable as WorkerManageable<_>>::slash(
+					worker,
+					T::SlashingCardinal::get().saturating_mul(10u32.into()),
+				);
 			}
 
 			<RunningWorkers<T>>::remove(worker);

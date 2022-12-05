@@ -32,9 +32,9 @@ pub use pallet::*;
 use crate::{
 	traits::{WorkerLifecycleHooks, WorkerManageable},
 	types::{
-		Attestation, AttestationError, AttestationMethod, FlipFlopStage, WorkerImplName, WorkerImplVersion, OnlinePayload,
-		VerifiedAttestation, WorkerInfo, WorkerStatus, WorkerImplPermission, WorkerImplHash,
-		BalanceOf, NegativeImbalanceOf, OfflineReason,
+		Attestation, AttestationError, AttestationMethod, BalanceOf, FlipFlopStage, NegativeImbalanceOf, OfflineReason,
+		OnlinePayload, VerifiedAttestation, WorkerImplHash, WorkerImplName, WorkerImplPermission, WorkerImplVersion,
+		WorkerInfo, WorkerStatus,
 	},
 	weights::WeightInfo,
 };
@@ -133,13 +133,13 @@ mod pallet {
 	/// Storage for worker's implementations' hashes.
 	#[pallet::storage]
 	#[pallet::getter(fn worker_impl_hashes)]
-	pub(crate) type WorkerImplHashes<T: Config> = StorageDoubleMap<_, Identity, WorkerImplName, Identity, WorkerImplVersion, WorkerImplHash>;
+	pub(crate) type WorkerImplHashes<T: Config> =
+		StorageDoubleMap<_, Identity, WorkerImplName, Identity, WorkerImplVersion, WorkerImplHash>;
 
 	/// Storage for computing_workers.
 	#[pallet::storage]
 	#[pallet::getter(fn workers)]
-	pub(crate) type Workers<T: Config> =
-		CountedStorageMap<_, Identity, T::AccountId, WorkerInfo<T>>;
+	pub(crate) type Workers<T: Config> = CountedStorageMap<_, Identity, T::AccountId, WorkerInfo<T>>;
 
 	/// Storage for flip set, this is for online checking
 	#[pallet::storage]
@@ -438,7 +438,7 @@ mod pallet {
 		pub fn set_worker_impl_permission(
 			origin: OriginFor<T>,
 			impl_name: WorkerImplName,
-			impl_permission: Option<WorkerImplPermission>
+			impl_permission: Option<WorkerImplPermission>,
 		) -> DispatchResult {
 			T::GovernanceOrigin::ensure_origin(origin)?;
 			Self::do_set_worker_impl_permission(impl_name, impl_permission)
@@ -451,7 +451,7 @@ mod pallet {
 			origin: OriginFor<T>,
 			impl_name: WorkerImplName,
 			impl_version: WorkerImplVersion,
-			impl_hash: Option<WorkerImplHash>
+			impl_hash: Option<WorkerImplHash>,
 		) -> DispatchResult {
 			T::GovernanceOrigin::ensure_origin(origin)?;
 			Self::do_set_worker_impl_hashes(impl_name, impl_version, impl_hash)
@@ -546,8 +546,8 @@ impl<T: Config> Pallet<T> {
 
 			ensure!(
 				payload.impl_version >= impl_permission.oldest_version &&
-				payload.impl_version <= impl_permission.latest_version &&
-				!impl_permission.blocked_versions.contains(&payload.impl_version),
+					payload.impl_version <= impl_permission.latest_version &&
+					!impl_permission.blocked_versions.contains(&payload.impl_version),
 				Error::<T>::WorkerImplBlocked
 			)
 		}
@@ -631,10 +631,7 @@ impl<T: Config> Pallet<T> {
 		}
 
 		ensure!(
-			match worker_info.status {
-				WorkerStatus::Online | WorkerStatus::RequestingOffline => true,
-				_ => false
-			},
+			matches!(worker_info.status, WorkerStatus::Online | WorkerStatus::RequestingOffline),
 			Error::<T>::NotOnline
 		);
 
@@ -674,10 +671,10 @@ impl<T: Config> Pallet<T> {
 			Self::ensure_owner(&owner, &worker_info)?;
 		}
 
-		match worker_info.status {
-			WorkerStatus::Online | WorkerStatus::RequestingOffline => {},
-			_ => return Err(Error::<T>::WrongStatus.into()),
-		}
+		ensure!(
+			matches!(worker_info.status, WorkerStatus::Online | WorkerStatus::RequestingOffline),
+			Error::<T>::NotOnline
+		);
 
 		T::WorkerLifecycleHooks::before_offline(&worker, OfflineReason::Forced);
 		Self::offline_worker(&worker);
@@ -689,10 +686,10 @@ impl<T: Config> Pallet<T> {
 	pub fn do_heartbeat(worker: T::AccountId) -> DispatchResult {
 		let worker_info = Workers::<T>::get(&worker).ok_or(Error::<T>::NotExists)?;
 		Self::ensure_worker(&worker, &worker_info)?;
-		match worker_info.status {
-			WorkerStatus::Online | WorkerStatus::RequestingOffline => {},
-			_ => return Err(Error::<T>::NotOnline.into()),
-		}
+		ensure!(
+			matches!(worker_info.status, WorkerStatus::Online | WorkerStatus::RequestingOffline),
+			Error::<T>::NotOnline
+		);
 
 		let current_block = frame_system::Pallet::<T>::block_number();
 
@@ -701,12 +698,13 @@ impl<T: Config> Pallet<T> {
 			T::WorkerLifecycleHooks::before_offline(&worker, OfflineReason::AttestationExpired);
 			Self::offline_worker(&worker);
 
-			Self::deposit_event(Event::<T>::Offline { worker: worker.clone(), reason: OfflineReason::AttestationExpired });
+			Self::deposit_event(Event::<T>::Offline { worker, reason: OfflineReason::AttestationExpired });
 			return Ok(())
 		}
 
 		// Check whether can offline now, We ignore error here
-		if worker_info.status == WorkerStatus::RequestingOffline && T::WorkerLifecycleHooks::can_offline(&worker).is_ok()
+		if worker_info.status == WorkerStatus::RequestingOffline &&
+			T::WorkerLifecycleHooks::can_offline(&worker).is_ok()
 		{
 			T::WorkerLifecycleHooks::before_offline(&worker, OfflineReason::Graceful);
 			Self::offline_worker(&worker);
@@ -725,14 +723,13 @@ impl<T: Config> Pallet<T> {
 		}
 
 		if T::ValidateWorkerImpl::get() {
-			let valid_impl =
-				if let Some(impl_permission) = WorkerImplPermissions::<T>::get(worker_info.impl_name) {
-					worker_info.impl_version >= impl_permission.oldest_version &&
-						worker_info.impl_version <= impl_permission.latest_version &&
-						!impl_permission.blocked_versions.contains(&worker_info.impl_version)
-				} else {
-					false
-				};
+			let valid_impl = if let Some(impl_permission) = WorkerImplPermissions::<T>::get(worker_info.impl_name) {
+				worker_info.impl_version >= impl_permission.oldest_version &&
+					worker_info.impl_version <= impl_permission.latest_version &&
+					!impl_permission.blocked_versions.contains(&worker_info.impl_version)
+			} else {
+				false
+			};
 
 			if !valid_impl {
 				T::WorkerLifecycleHooks::before_offline(&worker, OfflineReason::WorkerImplBlocked);
@@ -774,7 +771,7 @@ impl<T: Config> Pallet<T> {
 
 	fn do_set_worker_impl_permission(
 		impl_name: WorkerImplName,
-		impl_permission: Option<WorkerImplPermission>
+		impl_permission: Option<WorkerImplPermission>,
 	) -> DispatchResult {
 		let Some(impl_permission) = impl_permission else {
 			WorkerImplPermissions::<T>::remove(impl_name);
@@ -785,9 +782,7 @@ impl<T: Config> Pallet<T> {
 		};
 
 		WorkerImplPermissions::<T>::insert(impl_name, impl_permission);
-		Self::deposit_event(
-			Event::<T>::WorkerImplPermissionUpdated { impl_name }
-		);
+		Self::deposit_event(Event::<T>::WorkerImplPermissionUpdated { impl_name });
 
 		Ok(())
 	}
@@ -795,7 +790,7 @@ impl<T: Config> Pallet<T> {
 	fn do_set_worker_impl_hashes(
 		impl_name: WorkerImplName,
 		impl_version: WorkerImplVersion,
-		impl_hash: Option<WorkerImplHash>
+		impl_hash: Option<WorkerImplHash>,
 	) -> DispatchResult {
 		let Some(impl_hash) = impl_hash else {
 			WorkerImplHashes::<T>::remove(impl_name, impl_version);
@@ -806,9 +801,7 @@ impl<T: Config> Pallet<T> {
 		};
 
 		WorkerImplHashes::<T>::insert(impl_name, impl_version, impl_hash);
-		Self::deposit_event(
-			Event::<T>::WorkerImplHashUpdated { impl_name, impl_version }
-		);
+		Self::deposit_event(Event::<T>::WorkerImplHashUpdated { impl_name, impl_version });
 
 		Ok(())
 	}
@@ -891,18 +884,12 @@ impl<T: Config> Pallet<T> {
 		Ok(())
 	}
 
-	fn ensure_owner(
-		who: &T::AccountId,
-		worker_info: &WorkerInfo<T>,
-	) -> DispatchResult {
+	fn ensure_owner(who: &T::AccountId, worker_info: &WorkerInfo<T>) -> DispatchResult {
 		ensure!(*who == worker_info.owner, Error::<T>::NotTheOwner);
 		Ok(())
 	}
 
-	fn ensure_worker(
-		who: &T::AccountId,
-		worker_info: &WorkerInfo<T>,
-	) -> DispatchResult {
+	fn ensure_worker(who: &T::AccountId, worker_info: &WorkerInfo<T>) -> DispatchResult {
 		ensure!(*who == worker_info.account, Error::<T>::NotTheWorker);
 		Ok(())
 	}
@@ -923,10 +910,7 @@ impl<T: Config> Pallet<T> {
 		Ok(())
 	}
 
-	fn ensure_attestation_method(
-		attestation: &Option<Attestation>,
-		worker_info: &WorkerInfo<T>,
-	) -> DispatchResult {
+	fn ensure_attestation_method(attestation: &Option<Attestation>, worker_info: &WorkerInfo<T>) -> DispatchResult {
 		let Some(worker_attestation_method) = worker_info.attestation_method.clone() else {
 			ensure!(attestation.is_none(), Error::<T>::AttestationMethodChanged);
 			return Ok(())
@@ -985,10 +969,10 @@ impl<T: Config> WorkerManageable<T> for Pallet<T> {
 
 	fn offline(worker: &T::AccountId, reason: Option<Vec<u8>>) -> DispatchResult {
 		let mut worker_info = Workers::<T>::get(worker).ok_or(Error::<T>::NotExists)?;
-		match worker_info.status {
-			WorkerStatus::Online | WorkerStatus::RequestingOffline => {},
-			_ => return Err(Error::<T>::WrongStatus.into()),
-		}
+		ensure!(
+			matches!(worker_info.status, WorkerStatus::Online | WorkerStatus::RequestingOffline),
+			Error::<T>::NotOnline
+		);
 
 		worker_info.status = WorkerStatus::Offline;
 		Workers::<T>::insert(worker, worker_info);

@@ -24,11 +24,11 @@ macro_rules! log {
 	};
 }
 
+use crate::types::{Job, JobPayloadVec, JobResult, JobStatus};
 use pallet_computing_workers::{
 	traits::{WorkerLifecycleHooks, WorkerManageable},
-	types::{BalanceOf, OnlinePayload, OfflineReason},
+	types::{BalanceOf, OfflineReason, OnlinePayload},
 };
-use crate::types::{Job, JobStatus, JobResult, JobPayloadVec};
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -56,11 +56,7 @@ pub mod pallet {
 
 	#[pallet::storage]
 	#[pallet::getter(fn assigned_jobs)]
-	pub(crate) type AssignedJobs<T: Config> = StorageMap<
-		_,
-		Identity, T::AccountId,
-		Job<T>
-	>;
+	pub(crate) type AssignedJobs<T: Config> = StorageMap<_, Identity, T::AccountId, Job<T>>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -89,23 +85,16 @@ pub mod pallet {
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
 		#[pallet::weight(0)]
-		pub fn create_job(
-			origin: OriginFor<T>,
-			worker: T::AccountId,
-			payload: JobPayloadVec<T>,
-		) -> DispatchResult {
+		pub fn create_job(origin: OriginFor<T>, worker: T::AccountId, payload: JobPayloadVec<T>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 			Self::ensure_owner(&who, &worker)?;
 
-			ensure!(
-				!AssignedJobs::<T>::contains_key(&worker),
-				Error::<T>::AlreadyAssigned
-			);
+			ensure!(!AssignedJobs::<T>::contains_key(&worker), Error::<T>::AlreadyAssigned);
 
 			let job = Job {
 				status: JobStatus::Created,
 				result: None,
-				created_by: who.clone(),
+				created_by: who,
 				created_at: Some(frame_system::Pallet::<T>::block_number()),
 				started_at: None,
 				completed_at: None,
@@ -128,10 +117,7 @@ pub mod pallet {
 				return Err(Error::<T>::JobNotExists.into())
 			};
 
-			ensure!(
-				job.status == JobStatus::Created,
-				Error::<T>::AlreadyStarted
-			);
+			ensure!(job.status == JobStatus::Created, Error::<T>::AlreadyStarted);
 
 			job.status = JobStatus::Started;
 			job.started_at = Some(frame_system::Pallet::<T>::block_number());
@@ -152,10 +138,7 @@ pub mod pallet {
 				return Err(Error::<T>::JobNotExists.into())
 			};
 
-			ensure!(
-				job.status == JobStatus::Started,
-				Error::<T>::AlreadyStarted
-			);
+			ensure!(job.status == JobStatus::Started, Error::<T>::AlreadyStarted);
 
 			job.status = JobStatus::Completed;
 			job.result = Some(result);
@@ -176,23 +159,17 @@ pub mod pallet {
 				return Err(Error::<T>::WorkerNotExists.into())
 			};
 
-			ensure!(
-				who == worker || who == worker_info.owner,
-				Error::<T>::NoPermission
-			);
+			ensure!(who == worker || who == worker_info.owner, Error::<T>::NoPermission);
 
 			let Some(job) = AssignedJobs::<T>::get(&worker) else {
 				return Err(Error::<T>::JobNotExists.into())
 			};
 
 			ensure!(
-				match job.status {
-					JobStatus::Created |
-					JobStatus::Completed |
-					JobStatus::Timeout |
-					JobStatus::Cancelled => true,
-					_ => false
-				},
+				matches!(
+					job.status,
+					JobStatus::Created | JobStatus::Completed | JobStatus::Timeout | JobStatus::Cancelled
+				),
 				Error::<T>::CantRemove
 			);
 
@@ -222,10 +199,7 @@ pub mod pallet {
 		}
 
 		fn ensure_worker(who: &T::AccountId) -> DispatchResult {
-			ensure!(
-				T::WorkerManageable::worker_exists(who),
-				Error::<T>::WorkerNotExists
-			);
+			ensure!(T::WorkerManageable::worker_exists(who), Error::<T>::WorkerNotExists);
 
 			Ok(())
 		}
@@ -241,10 +215,7 @@ pub mod pallet {
 		}
 
 		fn can_offline(worker: &T::AccountId) -> DispatchResult {
-			ensure!(
-				!AssignedJobs::<T>::contains_key(&worker),
-				Error::<T>::StillWorking
-			);
+			ensure!(!AssignedJobs::<T>::contains_key(worker), Error::<T>::StillWorking);
 
 			Ok(())
 		}
@@ -255,7 +226,7 @@ pub mod pallet {
 			}
 
 			// TODO: slash by reason
-			AssignedJobs::<T>::remove(&worker)
+			AssignedJobs::<T>::remove(worker)
 		}
 
 		fn after_refresh_attestation(_worker: &T::AccountId, _: &OnlinePayload) {

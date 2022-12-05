@@ -1,9 +1,9 @@
-use frame_support::{dispatch::DispatchResult};
-use sp_std::prelude::*;
 use crate::{
-	types::{OnlinePayload, WorkerInfo, BalanceOf, NegativeImbalanceOf, OfflineReason},
+	types::{BalanceOf, NegativeImbalanceOf, OfflineReason, OnlinePayload, WorkerInfo},
 	Config,
 };
+use frame_support::dispatch::DispatchResult;
+use sp_std::prelude::*;
 
 /// Trait describing something that implements a hook for any operations to perform when a staker is
 /// slashed.
@@ -77,7 +77,7 @@ use frame_support::traits::Imbalance;
 use sp_runtime::traits::Zero;
 
 #[cfg(feature = "std")]
-impl<T:Config> WorkerManageable<T> for () {
+impl<T: Config> WorkerManageable<T> for () {
 	fn worker_info(_: &T::AccountId) -> Option<WorkerInfo<T>> {
 		None
 	}

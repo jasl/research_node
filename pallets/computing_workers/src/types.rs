@@ -9,9 +9,9 @@ use sp_std::prelude::*;
 
 pub type BalanceOf<T> = <<T as crate::Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 pub type PositiveImbalanceOf<T> =
-<<T as crate::Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::PositiveImbalance;
+	<<T as crate::Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::PositiveImbalance;
 pub type NegativeImbalanceOf<T> =
-<<T as crate::Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::NegativeImbalance;
+	<<T as crate::Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::NegativeImbalance;
 
 pub const ATTESTATION_ISSUED_PERIOD_OF_VALIDITY: u64 = 60 * 60 * 1000; // 1 hour
 
@@ -62,7 +62,7 @@ impl Attestation {
 
 	pub fn impl_hash(&self) -> WorkerImplHash {
 		match self {
-			Attestation::NonTEE(..) => WorkerImplHash::default()
+			Attestation::NonTEE(..) => WorkerImplHash::default(),
 		}
 	}
 
@@ -186,7 +186,7 @@ impl Default for FlipFlopStage {
 pub struct WorkerImplPermission {
 	pub oldest_version: WorkerImplVersion,
 	pub latest_version: WorkerImplVersion,
-	pub blocked_versions: BoundedVec<WorkerImplVersion, ConstU32<6>>
+	pub blocked_versions: BoundedVec<WorkerImplVersion, ConstU32<6>>,
 }
 impl Default for WorkerImplPermission {
 	fn default() -> Self {
@@ -206,5 +206,5 @@ pub enum OfflineReason {
 	AttestationExpired,
 	WorkerImplBlocked,
 	InsufficientReservedFunds,
-	Other(Option<Vec<u8>>)
+	Other(Option<Vec<u8>>),
 }

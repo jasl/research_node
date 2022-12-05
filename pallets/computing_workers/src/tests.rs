@@ -14,11 +14,7 @@ const BOB: AccountId = 3;
 #[allow(unused)]
 const BOB_WORKER: AccountId = 4;
 
-fn register_worker_for(
-	owner: AccountId,
-	worker: AccountId,
-	initial_deposit: Balance,
-) -> WorkerInfo<Test> {
+fn register_worker_for(owner: AccountId, worker: AccountId, initial_deposit: Balance) -> WorkerInfo<Test> {
 	let owner_balance = Balances::free_balance(owner);
 
 	assert_ok!(ComputingWorkers::register(RuntimeOrigin::signed(owner), worker, initial_deposit));
