@@ -197,6 +197,8 @@ pub mod pallet {
 
 			AssignedJobs::<T>::remove(&worker);
 
+			// TODO: Do settlement
+
 			Self::deposit_event(Event::JobRemoved { worker });
 
 			Ok(())

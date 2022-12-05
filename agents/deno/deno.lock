@@ -2306,6 +2306,8 @@
     "https://deno.land/x/polkadot@0.2.16/x-textencoder/packageInfo.ts": "768d9a4ae2a57866986dca017aeaaa4dab819589b648c62351bdf2bc6e1f802a",
     "https://deno.land/x/polkadot@0.2.16/x-ws/mod.ts": "ee9afc2b1135c20b5b4de4aa41ff95b6081b726b1c816aab728e473a760e9b38",
     "https://deno.land/x/polkadot@0.2.16/x-ws/packageInfo.ts": "826ea155778e3d4067996637441ec45cb5ece36f89aba89404eddc1d914a55b3",
+    "https://deno.land/x/sleep@v1.2.1/mod.ts": "f2d3c9e1ef1fb2852f580f6960384bed36bc18a2da357c35f11a089fcca44273",
+    "https://deno.land/x/sleep@v1.2.1/sleep.ts": "2426efe5d3ce5de0b8af08bd36a8700deb5dc60e752f5f8f05d5e815a7e8cb0e",
     "https://esm.sh/@noble/hashes@1.1.3/blake2b.js": "0ccf61d946d9df8bab5db49cc7b29ad5440003acacf98e9a4ac311aa9d6c2cd7",
     "https://esm.sh/@noble/hashes@1.1.3/hmac.js": "976bd96fa7a1c48bbba576e18869732d6bf0c4813c7f02acaaf3f8a186d2f4de",
     "https://esm.sh/@noble/hashes@1.1.3/pbkdf2.js": "d7bbcb53c22235b624853552862cad9d15fd47ffec7bb9846080b3e9b275c0ec",
