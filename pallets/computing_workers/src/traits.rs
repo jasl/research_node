@@ -1,6 +1,7 @@
-use frame_support::dispatch::DispatchResult;
+use frame_support::{dispatch::DispatchResult};
+use sp_std::prelude::*;
 use crate::{
-	types::{OnlinePayload, WorkerInfo, BalanceOf, NegativeImbalanceOf},
+	types::{OnlinePayload, WorkerInfo, BalanceOf, NegativeImbalanceOf, OfflineReason},
 	Config,
 };
 
@@ -18,14 +19,10 @@ pub trait WorkerLifecycleHooks<AccountId, Balance> {
 	/// can use for add extra conditions check,
 	/// if returns error (e.g. still have job running), the worker will not be offline
 	fn can_offline(worker: &AccountId) -> DispatchResult;
+
 	/// A hook before the worker transited to offline status,
 	/// can use for add additional business logic, e.g. un-reserve money
-	/// when `force` is true, means it is the user force to do this, it may need to slash
-	fn before_offline(worker: &AccountId, force: bool);
-
-	/// A hook after the worker unresponsive,
-	/// can use for add additional business logic, e.g. stop assigning job, do slash
-	fn after_unresponsive(worker: &AccountId);
+	fn before_offline(worker: &AccountId, reason: OfflineReason);
 
 	/// A hook after the worker update its attestation,
 	/// Can use for if interest in payload's custom field
@@ -34,18 +31,6 @@ pub trait WorkerLifecycleHooks<AccountId, Balance> {
 	/// A hook after the worker transited to requesting offline status,
 	/// can use for add additional business logic, e.g. stop assigning job
 	fn after_requesting_offline(worker: &AccountId);
-
-	/// A hook after the worker force offline by attestation expired,
-	/// can use for add additional business logic, e.g. stop assigning job, do slash
-	fn after_attestation_expired(worker: &AccountId);
-
-	/// A hook after the worker force offline by worker implementation blocked,
-	/// can use for add additional business logic, e.g. stop assigning job, do slash
-	fn after_impl_blocked(worker: &AccountId);
-
-	/// A hook after the worker force offline by insufficient reserved funds,
-	/// can use for add additional business logic, e.g. stop assigning job
-	fn after_insufficient_reserved_funds(worker: &AccountId);
 }
 
 impl<AccountId, Balance> WorkerLifecycleHooks<AccountId, Balance> for () {
@@ -61,11 +46,7 @@ impl<AccountId, Balance> WorkerLifecycleHooks<AccountId, Balance> for () {
 		Ok(())
 	}
 
-	fn before_offline(_: &AccountId, _: bool) {
-		// Do nothing
-	}
-
-	fn after_unresponsive(_: &AccountId) {
+	fn before_offline(_: &AccountId, _: OfflineReason) {
 		// Do nothing
 	}
 
@@ -74,18 +55,6 @@ impl<AccountId, Balance> WorkerLifecycleHooks<AccountId, Balance> for () {
 	}
 
 	fn after_requesting_offline(_: &AccountId) {
-		// Do nothing
-	}
-
-	fn after_attestation_expired(_: &AccountId) {
-		// Do nothing
-	}
-
-	fn after_impl_blocked(_: &AccountId) {
-		// Do nothing
-	}
-
-	fn after_insufficient_reserved_funds(_: &AccountId) {
 		// Do nothing
 	}
 }
@@ -99,7 +68,7 @@ pub trait WorkerManageable<T: Config> {
 
 	fn slash(worker: &T::AccountId, value: BalanceOf<T>) -> (NegativeImbalanceOf<T>, BalanceOf<T>);
 
-	fn offline(worker: &T::AccountId) -> DispatchResult;
+	fn offline(worker: &T::AccountId, reason: Option<Vec<u8>>) -> DispatchResult;
 }
 
 #[cfg(feature = "std")]
@@ -125,7 +94,7 @@ impl<T:Config> WorkerManageable<T> for () {
 		(NegativeImbalanceOf::<T>::zero(), BalanceOf::<T>::zero())
 	}
 
-	fn offline(_: &T::AccountId) -> DispatchResult {
+	fn offline(_: &T::AccountId, _: Option<Vec<u8>>) -> DispatchResult {
 		Ok(())
 	}
 }

@@ -117,15 +117,15 @@ pub struct OnlinePayload {
 pub enum WorkerStatus {
 	/// Initial status for a new registered worker.
 	Registered,
+	/// The worker is online so it can accept job
+	/// Transit from `Registered` and `Offline`,
+	/// not sure for `RequestingOffline` (may have side effect)
+	Online,
 	/// The worker is requesting offline,
 	/// the worker won't accept new job, accepted jobs will still processing,
 	/// when accepted jobs processed it can be transited to `Offline` safely without slashing.
 	/// Transit from `Online`
 	RequestingOffline,
-	/// The worker is online so it can accept job
-	/// Transit from `Registered` and `Offline`,
-	/// not sure for `RequestingOffline` (may have side effect)
-	Online,
 	/// The worker is offline so it can't accept job.
 	/// Transit from `RequestingOffline` when job queue cleared,
 	/// and `Online` (when force by user or be slashed)
@@ -196,4 +196,15 @@ impl Default for WorkerImplPermission {
 			blocked_versions: BoundedVec::<WorkerImplVersion, ConstU32<6>>::default(),
 		}
 	}
+}
+
+#[derive(Encode, Decode, TypeInfo, RuntimeDebug, Clone, PartialEq, Eq)]
+pub enum OfflineReason {
+	Graceful,
+	Forced,
+	Unresponsive,
+	AttestationExpired,
+	WorkerImplBlocked,
+	InsufficientReservedFunds,
+	Other(Option<Vec<u8>>)
 }

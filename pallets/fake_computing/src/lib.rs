@@ -31,7 +31,7 @@ use frame_support::{
 };
 use pallet_computing_workers::{
 	traits::{WorkerLifecycleHooks, WorkerManageable},
-	types::{BalanceOf, OnlinePayload},
+	types::{BalanceOf, OnlinePayload, OfflineReason},
 };
 
 #[frame_support::pallet]
@@ -157,28 +157,17 @@ pub mod pallet {
 			Ok(())
 		}
 
-		fn before_offline(worker: &T::AccountId, force: bool) {
+		fn before_offline(worker: &T::AccountId, reason: OfflineReason) {
 			log!(info, "before_offline: {:?}", worker);
 
 			if !<RunningWorkers<T>>::contains_key(worker) {
 				return
 			}
 
-			if force {
+			if reason != OfflineReason::Graceful {
 				<T::WorkerManageable as WorkerManageable<_>>::slash(worker, T::SlashingCardinal::get().saturating_mul(10u32.into()));
 			}
 
-			<RunningWorkers<T>>::remove(worker);
-		}
-
-		fn after_unresponsive(worker: &T::AccountId) {
-			log!(info, "after_unresponsive: {:?}", worker);
-
-			if !<RunningWorkers<T>>::contains_key(worker) {
-				return
-			}
-
-			<T::WorkerManageable as WorkerManageable<_>>::slash(worker, T::SlashingCardinal::get().saturating_mul(10u32.into()));
 			<RunningWorkers<T>>::remove(worker);
 		}
 
@@ -188,39 +177,6 @@ pub mod pallet {
 
 		fn after_requesting_offline(worker: &T::AccountId) {
 			log!(info, "after_requesting_offline: {:?}", worker);
-		}
-
-		fn after_attestation_expired(worker: &T::AccountId) {
-			log!(info, "after_attestation_expired: {:?}", worker);
-
-			if !<RunningWorkers<T>>::contains_key(worker) {
-				return
-			}
-
-			<T::WorkerManageable as WorkerManageable<_>>::slash(worker, T::SlashingCardinal::get().saturating_mul(10u32.into()));
-			<RunningWorkers<T>>::remove(worker);
-		}
-
-		fn after_impl_blocked(worker: &T::AccountId) {
-			log!(info, "after_impl_blocked: {:?}", worker);
-
-			if !<RunningWorkers<T>>::contains_key(worker) {
-				return
-			}
-
-			<T::WorkerManageable as WorkerManageable<_>>::slash(worker, T::SlashingCardinal::get().saturating_mul(10u32.into()));
-			<RunningWorkers<T>>::remove(worker);
-		}
-
-		fn after_insufficient_reserved_funds(worker: &T::AccountId) {
-			log!(info, "after_insufficient_reserved_funds: {:?}", worker);
-
-			if !<RunningWorkers<T>>::contains_key(worker) {
-				return
-			}
-
-			<T::WorkerManageable as WorkerManageable<_>>::slash(worker, T::SlashingCardinal::get().saturating_mul(10u32.into()));
-			<RunningWorkers<T>>::remove(worker);
 		}
 	}
 }

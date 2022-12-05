@@ -26,7 +26,7 @@ macro_rules! log {
 
 use pallet_computing_workers::{
 	traits::{WorkerLifecycleHooks, WorkerManageable},
-	types::{BalanceOf, OnlinePayload},
+	types::{BalanceOf, OnlinePayload, OfflineReason},
 };
 use crate::types::{Job, JobStatus, JobResult, JobPayloadVec};
 
@@ -75,6 +75,7 @@ pub mod pallet {
 	// Errors inform users that something went wrong.
 	#[pallet::error]
 	pub enum Error<T> {
+		StillWorking,
 		InsufficientFundsForSlashing,
 		NoPermission,
 		NotTheOwner,
@@ -239,18 +240,22 @@ pub mod pallet {
 			// Nothing to do
 		}
 
-		fn can_offline(_worker: &T::AccountId) -> DispatchResult {
-			// TODO:
+		fn can_offline(worker: &T::AccountId) -> DispatchResult {
+			ensure!(
+				!AssignedJobs::<T>::contains_key(&worker),
+				Error::<T>::StillWorking
+			);
 
 			Ok(())
 		}
 
-		fn before_offline(_worker: &T::AccountId, _force: bool) {
-			// TODO:
-		}
+		fn before_offline(worker: &T::AccountId, reason: OfflineReason) {
+			if reason == OfflineReason::Graceful {
+				return
+			}
 
-		fn after_unresponsive(_worker: &T::AccountId) {
-			// TODO:
+			// TODO: slash by reason
+			AssignedJobs::<T>::remove(&worker)
 		}
 
 		fn after_refresh_attestation(_worker: &T::AccountId, _: &OnlinePayload) {
@@ -258,18 +263,6 @@ pub mod pallet {
 		}
 
 		fn after_requesting_offline(_worker: &T::AccountId) {
-			// TODO:
-		}
-
-		fn after_attestation_expired(_worker: &T::AccountId) {
-			// TODO:
-		}
-
-		fn after_impl_blocked(_worker: &T::AccountId) {
-			// TODO:
-		}
-
-		fn after_insufficient_reserved_funds(_worker: &T::AccountId) {
 			// TODO:
 		}
 	}
