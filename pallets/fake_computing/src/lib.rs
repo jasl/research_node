@@ -28,7 +28,7 @@ macro_rules! log {
 use frame_support::{sp_runtime::Saturating, sp_std::prelude::*};
 use pallet_computing_workers::{
 	traits::{WorkerLifecycleHooks, WorkerManageable},
-	types::{BalanceOf, OfflineReason, OnlinePayload},
+	types::{BalanceOf, OfflineReason, OnlinePayload, VerifiedAttestation},
 };
 
 #[frame_support::pallet]
@@ -77,7 +77,6 @@ pub mod pallet {
 	pub enum Error<T> {
 		AlreadyStarted,
 		AlreadyStopped,
-		Computing,
 		Blocked,
 		NotStarted,
 		InsufficientFundsForSlashing,
@@ -129,7 +128,7 @@ pub mod pallet {
 	}
 
 	impl<T: Config> WorkerLifecycleHooks<T::AccountId, BalanceOf<T>> for Pallet<T> {
-		fn can_online(worker: &T::AccountId, _payload: &OnlinePayload) -> DispatchResult {
+		fn can_online(worker: &T::AccountId, _payload: &OnlinePayload, _verified_attestation: &Option<VerifiedAttestation>) -> DispatchResult {
 			log!(info, "can_online: {:?}", worker);
 
 			ensure!(!<BlockedWorkers<T>>::contains_key(worker), Error::<T>::Blocked);
@@ -146,12 +145,10 @@ pub mod pallet {
 			Self::deposit_event(Event::Started { worker: worker.clone() });
 		}
 
-		fn can_offline(worker: &T::AccountId) -> DispatchResult {
+		fn can_offline(worker: &T::AccountId) -> bool {
 			log!(info, "can_offline: {:?}", worker);
 
-			ensure!(!<RunningWorkers<T>>::contains_key(worker), Error::<T>::Computing);
-
-			Ok(())
+			!<RunningWorkers<T>>::contains_key(worker)
 		}
 
 		fn before_offline(worker: &T::AccountId, reason: OfflineReason) {
@@ -171,7 +168,7 @@ pub mod pallet {
 			<RunningWorkers<T>>::remove(worker);
 		}
 
-		fn after_refresh_attestation(worker: &T::AccountId, _: &OnlinePayload) {
+		fn after_refresh_attestation(worker: &T::AccountId, _payload: &OnlinePayload, _verified_attestation: &Option<VerifiedAttestation>) {
 			log!(info, "after_refresh_attestation: {:?}", worker);
 		}
 

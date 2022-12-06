@@ -27,7 +27,7 @@ macro_rules! log {
 use crate::types::{Job, JobPayloadVec, JobResult, JobStatus};
 use pallet_computing_workers::{
 	traits::{WorkerLifecycleHooks, WorkerManageable},
-	types::{BalanceOf, OfflineReason, OnlinePayload},
+	types::{BalanceOf, OfflineReason, OnlinePayload, VerifiedAttestation},
 };
 
 #[frame_support::pallet]
@@ -71,7 +71,6 @@ pub mod pallet {
 	// Errors inform users that something went wrong.
 	#[pallet::error]
 	pub enum Error<T> {
-		StillWorking,
 		InsufficientFundsForSlashing,
 		NoPermission,
 		NotTheOwner,
@@ -206,7 +205,7 @@ pub mod pallet {
 	}
 
 	impl<T: Config> WorkerLifecycleHooks<T::AccountId, BalanceOf<T>> for Pallet<T> {
-		fn can_online(_worker: &T::AccountId, _payload: &OnlinePayload) -> DispatchResult {
+		fn can_online(_worker: &T::AccountId, _payload: &OnlinePayload, _verified_attestation: &Option<VerifiedAttestation>) -> DispatchResult {
 			Ok(())
 		}
 
@@ -214,10 +213,8 @@ pub mod pallet {
 			// Nothing to do
 		}
 
-		fn can_offline(worker: &T::AccountId) -> DispatchResult {
-			ensure!(!AssignedJobs::<T>::contains_key(worker), Error::<T>::StillWorking);
-
-			Ok(())
+		fn can_offline(worker: &T::AccountId) -> bool {
+			!AssignedJobs::<T>::contains_key(worker)
 		}
 
 		fn before_offline(worker: &T::AccountId, reason: OfflineReason) {
@@ -229,7 +226,7 @@ pub mod pallet {
 			AssignedJobs::<T>::remove(worker)
 		}
 
-		fn after_refresh_attestation(_worker: &T::AccountId, _: &OnlinePayload) {
+		fn after_refresh_attestation(_worker: &T::AccountId, _payload: &OnlinePayload, _verified_attestation: &Option<VerifiedAttestation>) {
 			// Nothing to do
 		}
 

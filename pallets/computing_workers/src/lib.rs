@@ -151,7 +151,12 @@ mod pallet {
 	/// Storage for stage of flip-flop, this is used for online checking
 	#[pallet::storage]
 	#[pallet::getter(fn flip_flop_stage)]
-	pub(crate) type FlipOrFlop<T> = StorageValue<_, FlipFlopStage, ValueQuery>;
+	pub(crate) type FlipOrFlop<T: Config> = StorageValue<_, FlipFlopStage, ValueQuery>;
+
+	/// Storage for stage of flip-flop, this is used for online checking
+	#[pallet::storage]
+	#[pallet::getter(fn current_flip_flop_started_at)]
+	pub(crate) type CurrentFlipFlopStartedAt<T: Config> = StorageValue<_, T::BlockNumber, ValueQuery>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -248,11 +253,12 @@ mod pallet {
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		fn on_initialize(n: T::BlockNumber) -> Weight {
-			let mut reads: u64 = 1; // Read FlipOrFlop
+			let mut reads: u64 = 2; // Read FlipOrFlop and CurrentFlipFlopStartedAt
 			let mut writes: u64 = 0;
 
 			let mut flip_or_flop = FlipOrFlop::<T>::get();
-			if (n % T::CollectingHeartbeatsDuration::get().into()).is_zero() {
+			let current_flip_flop_started_at = CurrentFlipFlopStartedAt::<T>::get();
+			if n == current_flip_flop_started_at + T::CollectingHeartbeatsDuration::get().into() {
 				match flip_or_flop {
 					FlipFlopStage::Flip => {
 						flip_or_flop = FlipFlopStage::FlipToFlop;
@@ -284,7 +290,8 @@ mod pallet {
 
 					if i >= total_count as u64 {
 						FlipOrFlop::<T>::set(FlipFlopStage::Flop);
-						writes += 1;
+						CurrentFlipFlopStartedAt::<T>::set(n);
+						writes += 2;
 					}
 				},
 				FlipFlopStage::FlopToFlip => {
@@ -303,7 +310,8 @@ mod pallet {
 
 					if i >= total_count as u64 {
 						FlipOrFlop::<T>::set(FlipFlopStage::Flip);
-						writes += 1;
+						CurrentFlipFlopStartedAt::<T>::set(n);
+						writes += 2;
 					}
 				},
 				_ => {},
@@ -562,8 +570,9 @@ impl<T: Config> Pallet<T> {
 		}
 
 		Self::ensure_attestation_provided(&attestation)?;
-		Self::verify_online_payload(&worker, &payload, &attestation)?;
-		T::WorkerLifecycleHooks::can_online(&worker, &payload)?;
+		let verified_attestation = Self::verify_attestation(&attestation)?;
+		Self::verify_online_payload(&worker, &payload, &verified_attestation)?;
+		T::WorkerLifecycleHooks::can_online(&worker, &payload, &verified_attestation)?;
 
 		let attestation_method: Option<AttestationMethod> = attestation.map(|a| a.method());
 
@@ -608,14 +617,15 @@ impl<T: Config> Pallet<T> {
 		// Should we validate the impl here?
 
 		Self::ensure_attestation_method(&attestation, &worker_info)?;
-		Self::verify_online_payload(&worker, &payload, &attestation)?;
+		let verified_attestation = Self::verify_attestation(&attestation)?;
+		Self::verify_online_payload(&worker, &payload, &verified_attestation)?;
 
 		worker_info.attested_at = frame_system::Pallet::<T>::block_number();
 		Workers::<T>::insert(&worker, worker_info);
 
 		Self::deposit_event(Event::<T>::AttestationRefreshed { worker: worker.clone() });
 
-		T::WorkerLifecycleHooks::after_refresh_attestation(&worker, &payload);
+		T::WorkerLifecycleHooks::after_refresh_attestation(&worker, &payload, &verified_attestation);
 
 		Ok(())
 	}
@@ -634,7 +644,7 @@ impl<T: Config> Pallet<T> {
 			Error::<T>::NotOnline
 		);
 
-		if T::WorkerLifecycleHooks::can_offline(&worker).is_ok() {
+		if T::WorkerLifecycleHooks::can_offline(&worker) {
 			T::WorkerLifecycleHooks::before_offline(&worker, OfflineReason::Graceful);
 			Self::offline_worker(&worker);
 
@@ -701,7 +711,7 @@ impl<T: Config> Pallet<T> {
 
 		// Check whether can offline now, We ignore error here
 		if worker_info.status == WorkerStatus::RequestingOffline &&
-			T::WorkerLifecycleHooks::can_offline(&worker).is_ok()
+			T::WorkerLifecycleHooks::can_offline(&worker)
 		{
 			T::WorkerLifecycleHooks::before_offline(&worker, OfflineReason::Graceful);
 			Self::offline_worker(&worker);
@@ -737,7 +747,7 @@ impl<T: Config> Pallet<T> {
 			}
 		}
 
-		let next_heartbeat = Self::generate_next_heartbeat_block(current_block);
+		let next_heartbeat = Self::generate_next_heartbeat_block();
 		let stage = FlipOrFlop::<T>::get();
 		match stage {
 			FlipFlopStage::Flip => {
@@ -814,9 +824,7 @@ impl<T: Config> Pallet<T> {
 	}
 
 	fn flip_flop_for_online(worker: &T::AccountId) -> T::BlockNumber {
-		let current_block = frame_system::Pallet::<T>::block_number();
-
-		let next_heartbeat = Self::generate_next_heartbeat_block(current_block);
+		let next_heartbeat = Self::generate_next_heartbeat_block();
 		let stage = FlipOrFlop::<T>::get();
 		match stage {
 			FlipFlopStage::Flip | FlipFlopStage::FlopToFlip => {
@@ -842,11 +850,15 @@ impl<T: Config> Pallet<T> {
 		Self::deposit_event(Event::<T>::Offline { worker: worker.clone(), reason: OfflineReason::Unresponsive });
 	}
 
-	fn verify_attestation(attestation: &Attestation) -> Result<VerifiedAttestation, DispatchError> {
+	fn verify_attestation(attestation: &Option<Attestation>) -> Result<Option<VerifiedAttestation>, DispatchError> {
+		let Some(attestation) = attestation else {
+			return Ok(None)
+		};
+
 		let now = T::UnixTime::now().as_millis().saturated_into::<u64>();
 		let verified = attestation.verify(now);
 		match verified {
-			Ok(verified) => Ok(verified),
+			Ok(verified) => Ok(Some(verified)),
 			Err(AttestationError::Expired) => Err(Error::<T>::ExpiredAttestation.into()),
 			Err(AttestationError::Invalid) => Err(Error::<T>::InvalidAttestation.into()),
 		}
@@ -855,13 +867,11 @@ impl<T: Config> Pallet<T> {
 	fn verify_online_payload(
 		worker: &T::AccountId,
 		payload: &OnlinePayload,
-		attestation: &Option<Attestation>,
+		verified_attestation: &Option<VerifiedAttestation>,
 	) -> DispatchResult {
-		let Some(attestation) = attestation else {
+		let Some(verified_attestation) = verified_attestation else {
 			return Ok(())
 		};
-
-		let verified = Self::verify_attestation(attestation)?;
 
 		let encode_worker = T::AccountId::encode(worker);
 		let h256_worker = H256::from_slice(&encode_worker);
@@ -869,7 +879,7 @@ impl<T: Config> Pallet<T> {
 
 		let encoded_message = Encode::encode(payload);
 
-		let Some(signature) = sr25519::Signature::from_slice(verified.payload()) else {
+		let Some(signature) = sr25519::Signature::from_slice(verified_attestation.payload()) else {
 			return Err(Error::<T>::CanNotVerifyPayload.into())
 		};
 
@@ -939,11 +949,12 @@ impl<T: Config> Pallet<T> {
 		random_number
 	}
 
-	fn generate_next_heartbeat_block(current_block: T::BlockNumber) -> T::BlockNumber {
+	fn generate_next_heartbeat_block() -> T::BlockNumber {
+		let current_flip_flop_started_at = CurrentFlipFlopStartedAt::<T>::get();
 		let duration = T::CollectingHeartbeatsDuration::get();
 		let random_delay = Self::generate_random_number(0) % (duration * 4 / 5); // Give ~20% room
 
-		current_block - (current_block % duration.into()) + (duration + random_delay).into()
+		current_flip_flop_started_at + (duration + random_delay).into()
 	}
 }
 
