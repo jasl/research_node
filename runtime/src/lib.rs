@@ -26,7 +26,6 @@ use sp_version::RuntimeVersion;
 use frame_support::{
 	construct_runtime,
 	traits::{Contains, InstanceFilter, WithdrawReasons},
-	weights::Weight,
 	RuntimeDebug,
 };
 
@@ -34,7 +33,7 @@ use pallet_grandpa::{fg_primitives, AuthorityId as GrandpaId, AuthorityList as G
 use pallet_transaction_payment::Multiplier;
 
 use node_primitives::constants::{
-	currency::{deposit, CENTS, EXISTENTIAL_DEPOSIT, UNITS},
+	currency::{deposit, EXISTENTIAL_DEPOSIT, UNITS},
 	time::SLOT_DURATION,
 	weight::{AVERAGE_ON_INITIALIZE_RATIO, MAXIMUM_BLOCK_WEIGHT, NORMAL_DISPATCH_RATIO},
 };
@@ -49,7 +48,7 @@ pub use sp_runtime::{Perbill, Permill};
 pub use node_primitives::{
 	constants,
 	opaque::{self, Header},
-	types::{AccountId, AssetId, Balance, BlockNumber, CollectionId, Hash, Index, ItemId, Moment, Signature},
+	types::{AccountId, Balance, BlockNumber, Hash, Index, Moment, Signature},
 };
 
 mod pallet_configs;
@@ -135,35 +134,28 @@ construct_runtime!(
 	{
 		// System support
 		System: frame_system::{Pallet, Call, Config, Storage, Event<T>} = 0,
-		RandomnessCollectiveFlip: pallet_randomness_collective_flip::{Pallet, Storage} = 1,
-		Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent} = 2,
-		Scheduler: pallet_scheduler::{Pallet, Call, Storage, Event<T>} = 3,
-		Preimage: pallet_preimage::{Pallet, Call, Storage, Event<T>} = 4,
-
-		// Utilities
-		Utility: pallet_utility::{Pallet, Call, Event} = 20,
-		Multisig: pallet_multisig::{Pallet, Call, Storage, Event<T>} = 21,
-		Proxy: pallet_proxy::{Pallet, Call, Storage, Event<T>} = 22,
+		Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent} = 1,
+		RandomnessCollectiveFlip: pallet_randomness_collective_flip::{Pallet, Storage} = 2,
 
 		// Consensus
-		Aura: pallet_aura::{Pallet, Config<T>, Storage} = 40,
-		Grandpa: pallet_grandpa::{Pallet, Call, Config, Event, Storage} = 41,
+		Aura: pallet_aura::{Pallet, Config<T>, Storage} = 20,
+		Grandpa: pallet_grandpa::{Pallet, Call, Config, Event, Storage} = 21,
+
+		// Utilities
+		Utility: pallet_utility::{Pallet, Call, Event} = 40,
+		Multisig: pallet_multisig::{Pallet, Call, Storage, Event<T>} = 41,
+		Proxy: pallet_proxy::{Pallet, Call, Storage, Event<T>} = 42,
 
 		// Monetary
 		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>} = 60,
 		TransactionPayment: pallet_transaction_payment::{Pallet, Storage, Config, Event<T>} = 61,
 		Vesting: pallet_vesting::{Pallet, Call, Storage, Event<T>, Config<T>} = 62,
-		Assets: pallet_assets::{Pallet, Call, Storage, Event<T>} = 63,
-		Uniques: pallet_uniques::{Pallet, Call, Storage, Event<T>} = 64,
 
 		// The main stage
-		Contracts: pallet_contracts::{Pallet, Call, Storage, Event<T>} = 100,
-
-		ComputingWorkers: pallet_computing_workers::{Pallet, Call, Storage, Event<T>} = 101,
-		SimpleComputing: pallet_simple_computing::{Pallet, Call, Storage, Event<T>} = 102,
+		ComputingWorkers: pallet_computing_workers::{Pallet, Call, Storage, Event<T>} = 100,
+		SimpleComputing: pallet_simple_computing::{Pallet, Call, Storage, Event<T>} = 101,
 
 		// Non-permanent
-		// FakeComputing: pallet_fake_computing::{Pallet, Call, Event<T>, Storage} = 254,
 		Sudo: pallet_sudo::{Pallet, Call, Config<T>, Event<T>, Storage} = 255,
 	}
 );
@@ -213,17 +205,12 @@ mod benches {
 		[frame_benchmarking, BaselineBench::<Runtime>]
 		[frame_system, SystemBench::<Runtime>]
 		[pallet_timestamp, Timestamp]
-		[pallet_scheduler, Scheduler]
-		[pallet_preimage, Preimage]
 		[pallet_proxy, Proxy]
 		[pallet_utility, Utility]
 		[pallet_multisig, Multisig]
 		[pallet_balances, Balances]
 		[pallet_vesting, Vesting]
 		[pallet_grandpa, Grandpa]
-		[pallet_contracts, Contracts]
-		[pallet_assets, Assets]
-		[pallet_uniques, Uniques]
 		[pallet_computing_workers, ComputingWorkers]
 	);
 }
@@ -373,75 +360,6 @@ impl_runtime_apis! {
 			len: u32,
 		) -> pallet_transaction_payment::FeeDetails<Balance> {
 			TransactionPayment::query_call_fee_details(call, len)
-		}
-	}
-
-	impl pallet_contracts::ContractsApi<Block, AccountId, Balance, BlockNumber, Hash> for Runtime {
-		fn call(
-			origin: AccountId,
-			dest: AccountId,
-			value: Balance,
-			gas_limit: Option<Weight>,
-			storage_deposit_limit: Option<Balance>,
-			input_data: Vec<u8>,
-		) -> pallet_contracts_primitives::ContractExecResult<Balance> {
-			let gas_limit = gas_limit.unwrap_or(RuntimeBlockWeights::get().max_block);
-			Contracts::bare_call(
-				origin,
-				dest,
-				value,
-				gas_limit,
-				storage_deposit_limit,
-				input_data,
-				CONTRACTS_DEBUG_OUTPUT,
-				pallet_contracts::Determinism::Deterministic,
-			)
-		}
-
-		fn instantiate(
-			origin: AccountId,
-			value: Balance,
-			gas_limit: Option<Weight>,
-			storage_deposit_limit: Option<Balance>,
-			code: pallet_contracts_primitives::Code<Hash>,
-			data: Vec<u8>,
-			salt: Vec<u8>,
-		) -> pallet_contracts_primitives::ContractInstantiateResult<AccountId, Balance> {
-			let gas_limit = gas_limit.unwrap_or(RuntimeBlockWeights::get().max_block);
-			Contracts::bare_instantiate(
-				origin,
-				value,
-				gas_limit,
-				storage_deposit_limit,
-				code,
-				data,
-				salt,
-				CONTRACTS_DEBUG_OUTPUT
-			)
-		}
-
-		fn upload_code(
-			origin: AccountId,
-			code: Vec<u8>,
-			storage_deposit_limit: Option<Balance>,
-			determinism: pallet_contracts::Determinism,
-		) -> pallet_contracts_primitives::CodeUploadResult<Hash, Balance> {
-			Contracts::bare_upload_code(
-				origin,
-				code,
-				storage_deposit_limit,
-				determinism,
-			)
-		}
-
-		fn get_storage(
-			address: AccountId,
-			key: Vec<u8>,
-		) -> pallet_contracts_primitives::GetStorageResult {
-			Contracts::get_storage(
-				address,
-				key
-			)
 		}
 	}
 

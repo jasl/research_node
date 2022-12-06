@@ -29,15 +29,6 @@ macro_rules! log {
 
 pub use pallet::*;
 
-use crate::{
-	traits::{WorkerLifecycleHooks, WorkerManageable},
-	types::{
-		Attestation, AttestationError, AttestationMethod, BalanceOf, FlipFlopStage, NegativeImbalanceOf, OfflineReason,
-		OnlinePayload, VerifiedAttestation, WorkerImplHash, WorkerImplName, WorkerImplPermission, WorkerImplVersion,
-		WorkerInfo, WorkerStatus,
-	},
-	weights::WeightInfo,
-};
 use frame_support::{
 	dispatch::{DispatchError, DispatchResult},
 	ensure,
@@ -49,6 +40,12 @@ use sp_core::{sr25519, H256};
 use sp_io::crypto::sr25519_verify;
 use sp_runtime::{traits::Zero, SaturatedConversion, Saturating};
 use sp_std::prelude::*;
+
+use crate::{
+	traits::*,
+	types::*,
+	weights::WeightInfo,
+};
 
 #[frame_support::pallet]
 mod pallet {
@@ -244,6 +241,8 @@ mod pallet {
 		HeartbeatAlreadySent,
 		/// Too early to send heartbeat
 		TooEarly,
+		/// Already requested offline
+		AlreadyRequestedOffline,
 	}
 
 	#[pallet::hooks]
@@ -637,17 +636,15 @@ impl<T: Config> Pallet<T> {
 
 		if T::WorkerLifecycleHooks::can_offline(&worker).is_ok() {
 			T::WorkerLifecycleHooks::before_offline(&worker, OfflineReason::Graceful);
-
-			FlipSet::<T>::remove(&worker);
-			FlopSet::<T>::remove(&worker);
-			Workers::<T>::mutate(&worker, |worker_info| {
-				if let Some(mut info) = worker_info.as_mut() {
-					info.status = WorkerStatus::Offline;
-				}
-			});
+			Self::offline_worker(&worker);
 
 			Self::deposit_event(Event::<T>::Offline { worker, reason: OfflineReason::Graceful });
 		} else {
+			ensure!(
+				worker_info.status == WorkerStatus::Online,
+				Error::<T>::AlreadyRequestedOffline
+			);
+
 			// the worker should keep sending heartbeat until get permission to offline
 			Workers::<T>::mutate(&worker, |worker_info| {
 				if let Some(mut info) = worker_info.as_mut() {

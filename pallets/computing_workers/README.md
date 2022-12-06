@@ -1,7 +1,7 @@
 Computing workers pallet
 ====
 
-Substrate pallet for managing decentralized offchain computing workers.
+Substrate pallet for managing decentralized off-chain computing workers.
 
 ## License
 

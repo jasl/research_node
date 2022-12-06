@@ -44,18 +44,10 @@ pallet-balances = { git = "https://github.com/paritytech/substrate", branch = "m
 pallet-timestamp = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
 pallet-transaction-payment = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
 pallet-transaction-payment-rpc-runtime-api = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
-pallet-scheduler = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
-pallet-preimage = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
 pallet-utility = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
 pallet-multisig = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
 pallet-proxy = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
 pallet-vesting = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
-
-pallet-contracts = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
-pallet-contracts-primitives = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
-
-pallet-assets = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
-pallet-uniques = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
 
 pallet-computing_workers = { path = "../pallets/computing_workers", default-features = false }
 pallet-simple_computing = { path = "../pallets/simple_computing", default-features = false }
@@ -98,16 +90,10 @@ std = [
 	"pallet-timestamp/std",
 	"pallet-transaction-payment/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",
-	"pallet-scheduler/std",
-	"pallet-preimage/std",
 	"pallet-utility/std",
 	"pallet-multisig/std",
 	"pallet-proxy/std",
 	"pallet-vesting/std",
-	"pallet-contracts-primitives/std",
-	"pallet-contracts/std",
-	"pallet-assets/std",
-	"pallet-uniques/std",
 	"pallet-computing_workers/std",
 	"pallet-simple_computing/std",
 ]
@@ -120,15 +106,10 @@ runtime-benchmarks = [
 	"pallet-grandpa/runtime-benchmarks",
 	"pallet-balances/runtime-benchmarks",
 	"pallet-timestamp/runtime-benchmarks",
-	"pallet-scheduler/runtime-benchmarks",
-	"pallet-preimage/runtime-benchmarks",
 	"pallet-utility/runtime-benchmarks",
 	"pallet-multisig/runtime-benchmarks",
 	"pallet-proxy/runtime-benchmarks",
 	"pallet-vesting/runtime-benchmarks",
-	"pallet-contracts/runtime-benchmarks",
-	"pallet-assets/runtime-benchmarks",
-	"pallet-uniques/runtime-benchmarks",
 	"pallet-computing_workers/runtime-benchmarks",
 ]
 try-runtime = [
@@ -143,15 +124,10 @@ try-runtime = [
 	"pallet-balances/try-runtime",
 	"pallet-timestamp/try-runtime",
 	"pallet-transaction-payment/try-runtime",
-	"pallet-scheduler/try-runtime",
-	"pallet-preimage/try-runtime",
 	"pallet-utility/try-runtime",
 	"pallet-multisig/try-runtime",
 	"pallet-proxy/try-runtime",
 	"pallet-vesting/try-runtime",
-	"pallet-contracts/try-runtime",
-	"pallet-assets/try-runtime",
-	"pallet-uniques/try-runtime",
 	"pallet-computing_workers/try-runtime",
 	"pallet-simple_computing/try-runtime",
 ]

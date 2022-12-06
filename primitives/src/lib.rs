@@ -28,9 +28,6 @@ pub mod types {
 	/// Balance of an account.
 	pub type Balance = u128;
 
-	/// Id of an asset.
-	pub type AssetId = u32;
-
 	/// Id of a NFT collection.
 	pub type CollectionId = u32;
 
