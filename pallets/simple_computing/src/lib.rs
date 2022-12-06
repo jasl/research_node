@@ -236,5 +236,9 @@ pub mod pallet {
 		fn after_requesting_offline(_worker: &T::AccountId) {
 			// TODO:
 		}
+
+		fn before_deregister(_worker: &T::AccountId) {
+			// Nothing to do
+		}
 	}
 }

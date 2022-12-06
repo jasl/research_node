@@ -31,6 +31,9 @@ pub trait WorkerLifecycleHooks<AccountId, Balance> {
 	/// A hook after the worker transited to requesting offline status,
 	/// can use for add additional business logic, e.g. stop assigning job
 	fn after_requesting_offline(worker: &AccountId);
+
+	/// A hook before the worker deregister
+	fn before_deregister(worker: &AccountId);
 }
 
 impl<AccountId, Balance> WorkerLifecycleHooks<AccountId, Balance> for () {
@@ -55,6 +58,10 @@ impl<AccountId, Balance> WorkerLifecycleHooks<AccountId, Balance> for () {
 	}
 
 	fn after_requesting_offline(_: &AccountId) {
+		// Do nothing
+	}
+
+	fn before_deregister(_: &AccountId) {
 		// Do nothing
 	}
 }

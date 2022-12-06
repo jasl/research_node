@@ -178,5 +178,9 @@ pub mod pallet {
 		fn after_requesting_offline(worker: &T::AccountId) {
 			log!(info, "after_requesting_offline: {:?}", worker);
 		}
+
+		fn before_deregister(worker: &T::AccountId) {
+			log!(info, "before_deregister: {:?}", worker);
+		}
 	}
 }
