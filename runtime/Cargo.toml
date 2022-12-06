@@ -51,7 +51,7 @@ pallet-multisig = { git = "https://github.com/paritytech/substrate", branch = "m
 pallet-proxy = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
 pallet-vesting = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
 
-pallet-contracts = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false, features = ["unstable-interface"] }
+pallet-contracts = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
 pallet-contracts-primitives = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
 
 pallet-assets = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
