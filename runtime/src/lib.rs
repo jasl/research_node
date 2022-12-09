@@ -22,12 +22,15 @@ use sp_std::prelude::*;
 use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
 
-// A few exports that help ease life for downstream crates.
 use frame_support::{
 	construct_runtime,
-	traits::{Contains, InstanceFilter, WithdrawReasons},
+	traits::{
+		Contains, InstanceFilter, WithdrawReasons
+	},
 	RuntimeDebug,
 };
+#[cfg(feature = "try-runtime")]
+use frame_support::weights::Weight;
 
 use pallet_grandpa::{fg_primitives, AuthorityId as GrandpaId, AuthorityList as GrandpaAuthorityList};
 use pallet_transaction_payment::Multiplier;
@@ -152,8 +155,10 @@ construct_runtime!(
 		Vesting: pallet_vesting::{Pallet, Call, Storage, Event<T>, Config<T>} = 62,
 
 		// The main stage
-		ComputingWorkers: pallet_computing_workers::{Pallet, Call, Storage, Event<T>} = 100,
-		SimpleComputing: pallet_simple_computing::{Pallet, Call, Storage, Event<T>} = 101,
+		MessageQueue: pallet_message_queue::{Pallet, Call, Storage, Event<T>} = 100,
+
+		ComputingWorkers: pallet_computing_workers::{Pallet, Call, Storage, Event<T>} = 110,
+		SimpleComputing: pallet_simple_computing::{Pallet, Call, Storage, Event<T>} = 111,
 
 		// Non-permanent
 		Sudo: pallet_sudo::{Pallet, Call, Config<T>, Event<T>, Storage} = 255,
@@ -205,12 +210,13 @@ mod benches {
 		[frame_benchmarking, BaselineBench::<Runtime>]
 		[frame_system, SystemBench::<Runtime>]
 		[pallet_timestamp, Timestamp]
+		[pallet_grandpa, Grandpa]
 		[pallet_proxy, Proxy]
 		[pallet_utility, Utility]
 		[pallet_multisig, Multisig]
 		[pallet_balances, Balances]
 		[pallet_vesting, Vesting]
-		[pallet_grandpa, Grandpa]
+		[pallet_message_queue, MessageQueue]
 		[pallet_computing_workers, ComputingWorkers]
 	);
 }
@@ -407,12 +413,11 @@ impl_runtime_apis! {
 	#[cfg(feature = "try-runtime")]
 	impl frame_try_runtime::TryRuntime<Block> for Runtime {
 		fn on_runtime_upgrade() -> (Weight, Weight) {
-			log::info!("try-runtime::on_runtime_upgrade");
 			// NOTE: intentional unwrap: we don't want to propagate the error backwards, and want to
 			// have a backtrace here. If any of the pre/post migration checks fail, we shall stop
 			// right here and right now.
 			let weight = Executive::try_runtime_upgrade().unwrap();
-			(weight, BlockWeights::get().max_block)
+			(weight, RuntimeBlockWeights::get().max_block)
 		}
 
 		fn execute_block(
@@ -421,15 +426,15 @@ impl_runtime_apis! {
 			select: frame_try_runtime::TryStateSelect
 		) -> Weight {
 			log::info!(
-				target: "runtime", "try-runtime: executing block #{} ({:?}) / root checks: {:?} / sanity-checks: {:?}",
-				block.header.number,
+				target: "node-runtime",
+				"try-runtime: executing block {:?} / root checks: {:?} / try-state-select: {:?}",
 				block.header.hash(),
 				state_root_check,
 				select,
 			);
 			// NOTE: intentional unwrap: we don't want to propagate the error backwards, and want to
 			// have a backtrace here.
-			Executive::try_execute_block(block, state_root_check, select).expect("execute-block failed")
+			Executive::try_execute_block(block, state_root_check, select).unwrap()
 		}
 	}
 }

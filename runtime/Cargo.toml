@@ -13,6 +13,8 @@ publish = false
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
+log = { version = "0.4.17", default-features = false }
+
 scale-codec = { package = "parity-scale-codec", version = "3.2.1", default-features = false, features = ["derive"] }
 scale-info = { version = "2.3.0", default-features = false, features = ["derive"] }
 
@@ -49,6 +51,8 @@ pallet-multisig = { git = "https://github.com/paritytech/substrate", branch = "m
 pallet-proxy = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
 pallet-vesting = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
 
+pallet-message-queue = { git = "https://github.com/paritytech/substrate", branch = "master", default-features = false }
+
 pallet-computing_workers = { path = "../pallets/computing_workers", default-features = false }
 pallet-simple_computing = { path = "../pallets/simple_computing", default-features = false }
 
@@ -61,6 +65,7 @@ substrate-wasm-builder = { git = "https://github.com/paritytech/substrate", bran
 [features]
 default = ["std"]
 std = [
+	"log/std",
 	"node-primitives/std",
 	"scale-codec/std",
 	"scale-info/std",
@@ -94,6 +99,7 @@ std = [
 	"pallet-multisig/std",
 	"pallet-proxy/std",
 	"pallet-vesting/std",
+	"pallet-message-queue/std",
 	"pallet-computing_workers/std",
 	"pallet-simple_computing/std",
 ]
@@ -110,6 +116,7 @@ runtime-benchmarks = [
 	"pallet-multisig/runtime-benchmarks",
 	"pallet-proxy/runtime-benchmarks",
 	"pallet-vesting/runtime-benchmarks",
+	"pallet-message-queue/runtime-benchmarks",
 	"pallet-computing_workers/runtime-benchmarks",
 ]
 try-runtime = [
@@ -129,5 +136,6 @@ try-runtime = [
 	"pallet-proxy/try-runtime",
 	"pallet-vesting/try-runtime",
 	"pallet-computing_workers/try-runtime",
+	"pallet-message-queue/try-runtime",
 	"pallet-simple_computing/try-runtime",
 ]
