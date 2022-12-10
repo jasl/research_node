@@ -1,6 +1,8 @@
 import { parse } from "https://deno.land/std/flags/mod.ts";
 import * as log from "https://deno.land/std/log/mod.ts";
 import * as path from "https://deno.land/std/path/mod.ts";
+import { copySync } from "https://deno.land/std/fs/mod.ts";
+
 import { BN, hexToU8a, isHex, u8aToHex, u8aToString } from "https://deno.land/x/polkadot/util/mod.ts";
 import { cryptoWaitReady, mnemonicGenerate } from "https://deno.land/x/polkadot/util-crypto/mod.ts";
 import { KeyringPair } from "https://deno.land/x/polkadot/keyring/types.ts";
@@ -43,7 +45,7 @@ const parsedArgs = parse(Deno.args, {
     help: false,
     version: false,
     ownerPhrase: "",
-    refreshAttestationInterval: 100, // 40000,
+    refreshAttestationInterval: 40000,
     noHeartbeat: false,
   },
 });
@@ -333,38 +335,50 @@ async function handleJob() {
     window.locals.sentStartJobAt = undefined;
   }
 
-  // Job started
-  // TODO: Spawn the job worker, ensure its uniqueness,
+  // TODO: This is only a demo, the job should fetch from the chain
+  // Basically I'm thinking
+  // - People can upload job executables to the chain, maybe seal in a NFT
+  // - The job executable should be a single file, normally it should be a compiled JS, maybe we should support tarball as well?
+  // - Requires a validation for deployed job executable, the entry must be `main.js` or `main.ts`
+  // - Some way to deploy to workers
+  // - Job should has an unique JID
+  // - Job should has a hard timeout, and (MAYBE) should keeping report when processing the job
+  // - Job should has a metadata, for permission controls and declaration resources
+  // - Copy the job executable to `tmp/${JID}/`
+  // - Run the job in `tmp/${JID}/`, the job executable has full control of the directory (but it should have hard limit)
+  // - Allow upload materials to somewhere because logs are valuable
+  // - Clean up `tmp/${JID}/` when a job is finished and archived on chain
+
   console.log(job)
 
-  const jobWorker = new Worker(new URL("./data/job.ts", import.meta.url).href, {
-    type: "module",
-    // deno: {
-    //   permissions: {
-    //     env: false,
-    //     hrtime: false,
-    //     net: "inherit",
-    //     ffi: false,
-    //     read: false,
-    //     run: false,
-    //     write: false,
-    //   },
-    // },
-  });
-  jobWorker.onerror = (e) => {
-    // We use try...catch to wrap onmessage, so this event shouldn't happen
-    logger.error(e.message);
-  };
-  jobWorker.onmessageerror = (e) => {
-    // Don't know how to trigger this error
-    logger.error(e);
-  };
-  jobWorker.onmessage = async (e) => {
-    // console.log("On message")
-    // console.log(e.data)
+  const jobExecName = "my_job.ts";
+  const jobSource = path.join(dataPath, jobExecName);
+  const jobWorkPath = path.join(tempPath, "my_job");
 
-    // TODO:
-    const jobResult = api.createType("JobResult", "Success");
+  await prepareDirectory(jobWorkPath).catch((e) => {
+    console.error(e.message);
+    Deno.exit(1);
+  });
+
+  copySync(jobSource, path.join(jobWorkPath, jobExecName), { overwrite: true })
+
+  // Run the job
+  const process = Deno.run({
+    cmd: [
+      "deno",
+      "run",
+      // "--no-prompt",
+      "--allow-net",
+      `--allow-read=${jobWorkPath}`,
+      `--allow-write=${jobWorkPath}`,
+      path.join(jobWorkPath, jobExecName),
+      job.payload.toString()
+    ],
+  });
+
+  process.status().then(async (status) => {
+    const result = status.code === 0 ? "Success" : "Failed";
+    const jobResult = api.createType("JobResult", result);
 
     logger.info(`Sending "simple_computing.complete_job()`);
     const txPromise = api.tx.simpleComputing.completeJob(jobResult);
@@ -374,11 +388,14 @@ async function handleJob() {
     // TODO: Catch whether failed
 
     window.locals.sentCompleteJobAt = window.latestBlockNumber;
-  };
+  });
 
-  window.locals.runningJob = jobWorker;
+  // manually stop process "yes" will never end on its own
+  // setTimeout(async () => {
+  //   process.kill("SIGINT");
+  // }, 100);
 
-  jobWorker.postMessage(job.payload);
+  window.locals.runningJob = process;
 }
 
 if (parsedArgs.version) {
@@ -471,7 +488,7 @@ interface Locals {
   sentRemoveJobAt?: number;
 
   currentJob?: any;
-  runningJob?: Worker;
+  runningJob?: Deno.Process;
 }
 
 declare global {
