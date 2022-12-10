@@ -390,11 +390,6 @@ async function handleJob() {
     window.locals.sentCompleteJobAt = window.latestBlockNumber;
   });
 
-  // manually stop process "yes" will never end on its own
-  // setTimeout(async () => {
-  //   process.kill("SIGINT");
-  // }, 100);
-
   window.locals.runningJob = process;
 }
 
