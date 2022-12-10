@@ -367,7 +367,7 @@ async function handleJob() {
     cmd: [
       "deno",
       "run",
-      // "--no-prompt",
+      "--no-prompt",
       "--allow-net",
       `--allow-read=${jobWorkPath}`,
       `--allow-write=${jobWorkPath}`,
