@@ -83,6 +83,7 @@ pub mod pallet {
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
+		#[pallet::call_index(0)]
 		#[pallet::weight(0)]
 		pub fn create_job(origin: OriginFor<T>, worker: T::AccountId, payload: JobPayloadVec<T>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
@@ -106,6 +107,7 @@ pub mod pallet {
 			Ok(())
 		}
 
+		#[pallet::call_index(1)]
 		#[pallet::weight(0)]
 		pub fn start_job(origin: OriginFor<T>) -> DispatchResult {
 			let worker = ensure_signed(origin)?;
@@ -128,6 +130,7 @@ pub mod pallet {
 			Ok(())
 		}
 
+		#[pallet::call_index(2)]
 		#[pallet::weight(0)]
 		pub fn complete_job(origin: OriginFor<T>, result: JobResult) -> DispatchResult {
 			let worker = ensure_signed(origin)?;
@@ -150,6 +153,7 @@ pub mod pallet {
 			Ok(())
 		}
 
+		#[pallet::call_index(3)]
 		#[pallet::weight(0)]
 		pub fn remove_job(origin: OriginFor<T>, worker: T::AccountId) -> DispatchResult {
 			let who = ensure_signed(origin)?;

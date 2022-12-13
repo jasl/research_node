@@ -337,6 +337,7 @@ mod pallet {
 		///
 		/// ## Events
 		/// The `Registered` event is emitted in case of success.
+		#[pallet::call_index(0)]
 		#[pallet::weight(T::WeightInfo::register())]
 		#[transactional]
 		pub fn register(origin: OriginFor<T>, worker: T::AccountId, initial_deposit: BalanceOf<T>) -> DispatchResult {
@@ -344,50 +345,8 @@ mod pallet {
 			Self::do_register(who, worker, initial_deposit)
 		}
 
-		#[pallet::weight(T::WeightInfo::refresh_attestation())]
-		#[transactional]
-		pub fn refresh_attestation(
-			origin: OriginFor<T>,
-			payload: OnlinePayload,
-			attestation: Option<Attestation>,
-		) -> DispatchResult {
-			let who = ensure_signed(origin)?;
-			Self::do_refresh_attestation(who, payload, attestation)
-		}
-
-		/// Deregister a computing workers.
-		#[pallet::weight(T::WeightInfo::deregister())]
-		#[transactional]
-		pub fn deregister(origin: OriginFor<T>, worker: T::AccountId) -> DispatchResult {
-			let who = ensure_signed(origin)?;
-			Self::do_deregister(who, worker)
-		}
-
-		/// The same with balances.transfer_keep_alive(owner, worker, balance)
-		#[pallet::weight(T::WeightInfo::deposit())]
-		#[transactional]
-		pub fn deposit(origin: OriginFor<T>, worker: T::AccountId, value: BalanceOf<T>) -> DispatchResult {
-			let who = ensure_signed(origin)?;
-			let worker_info = Workers::<T>::get(&worker).ok_or(Error::<T>::NotExists)?;
-			Self::ensure_owner(&who, &worker_info)?;
-
-			<T as Config>::Currency::transfer(&who, &worker, value, ExistenceRequirement::KeepAlive)?;
-			Ok(())
-		}
-
-		/// The same with balances.transfer_keep_alive(worker, owner, balance)
-		#[pallet::weight(T::WeightInfo::withdraw())]
-		#[transactional]
-		pub fn withdraw(origin: OriginFor<T>, worker: T::AccountId, value: BalanceOf<T>) -> DispatchResult {
-			let who = ensure_signed(origin)?;
-			let worker_info = Workers::<T>::get(&worker).ok_or(Error::<T>::NotExists)?;
-			Self::ensure_owner(&who, &worker_info)?;
-
-			<T as Config>::Currency::transfer(&worker, &who, value, ExistenceRequirement::KeepAlive)?;
-			Ok(())
-		}
-
 		/// The worker claim for online
+		#[pallet::call_index(1)]
 		#[pallet::weight(T::WeightInfo::online())]
 		#[transactional]
 		pub fn online(
@@ -400,6 +359,7 @@ mod pallet {
 		}
 
 		/// The worker requesting offline
+		#[pallet::call_index(2)]
 		#[pallet::weight(T::WeightInfo::request_offline())]
 		#[transactional]
 		pub fn request_offline(origin: OriginFor<T>) -> DispatchResult {
@@ -407,15 +367,8 @@ mod pallet {
 			Self::do_request_offline(who, None)
 		}
 
-		/// The owner (or his proxy) requesting a worker to offline
-		#[pallet::weight(T::WeightInfo::request_offline_for())]
-		#[transactional]
-		pub fn request_offline_for(origin: OriginFor<T>, worker: T::AccountId) -> DispatchResult {
-			let who = ensure_signed(origin)?;
-			Self::do_request_offline(worker, Some(who))
-		}
-
 		/// The worker force offline, slashing will apply
+		#[pallet::call_index(3)]
 		#[pallet::weight(T::WeightInfo::force_offline())]
 		#[transactional]
 		pub fn force_offline(origin: OriginFor<T>) -> DispatchResult {
@@ -423,15 +376,29 @@ mod pallet {
 			Self::do_force_offline(who, None)
 		}
 
-		/// The owner (or his proxy) force a worker to offline, will apply slash
-		#[pallet::weight(T::WeightInfo::force_offline_for())]
+		/// Deregister a computing workers.
+		#[pallet::call_index(4)]
+		#[pallet::weight(T::WeightInfo::deregister())]
 		#[transactional]
-		pub fn force_offline_for(origin: OriginFor<T>, worker: T::AccountId) -> DispatchResult {
+		pub fn deregister(origin: OriginFor<T>, worker: T::AccountId) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-			Self::do_force_offline(worker, Some(who))
+			Self::do_deregister(who, worker)
+		}
+
+		#[pallet::call_index(5)]
+		#[pallet::weight(T::WeightInfo::refresh_attestation())]
+		#[transactional]
+		pub fn refresh_attestation(
+			origin: OriginFor<T>,
+			payload: OnlinePayload,
+			attestation: Option<Attestation>,
+		) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+			Self::do_refresh_attestation(who, payload, attestation)
 		}
 
 		/// Worker report it is still online, must called by the worker
+		#[pallet::call_index(6)]
 		#[pallet::weight(T::WeightInfo::heartbeat())]
 		#[transactional]
 		pub fn heartbeat(origin: OriginFor<T>) -> DispatchResult {
@@ -439,7 +406,53 @@ mod pallet {
 			Self::do_heartbeat(who)
 		}
 
+		/// The same with balances.transfer_keep_alive(owner, worker, balance)
+		#[pallet::call_index(7)]
+		#[pallet::weight(T::WeightInfo::deposit())]
+		#[transactional]
+		pub fn deposit(origin: OriginFor<T>, worker: T::AccountId, value: BalanceOf<T>) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+			let worker_info = Workers::<T>::get(&worker).ok_or(Error::<T>::NotExists)?;
+			Self::ensure_owner(&who, &worker_info)?;
+
+			<T as Config>::Currency::transfer(&who, &worker, value, ExistenceRequirement::KeepAlive)?;
+			Ok(())
+		}
+
+		/// The same with balances.transfer_keep_alive(worker, owner, balance)
+		#[pallet::call_index(8)]
+		#[pallet::weight(T::WeightInfo::withdraw())]
+		#[transactional]
+		pub fn withdraw(origin: OriginFor<T>, worker: T::AccountId, value: BalanceOf<T>) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+			let worker_info = Workers::<T>::get(&worker).ok_or(Error::<T>::NotExists)?;
+			Self::ensure_owner(&who, &worker_info)?;
+
+			<T as Config>::Currency::transfer(&worker, &who, value, ExistenceRequirement::KeepAlive)?;
+			Ok(())
+		}
+
+		/// The owner (or his proxy) requesting a worker to offline
+		#[pallet::call_index(9)]
+		#[pallet::weight(T::WeightInfo::request_offline_for())]
+		#[transactional]
+		pub fn request_offline_for(origin: OriginFor<T>, worker: T::AccountId) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+			Self::do_request_offline(worker, Some(who))
+		}
+
+		/// The owner (or his proxy) force a worker to offline, will apply slash
+		#[pallet::call_index(10)]
+		#[pallet::weight(T::WeightInfo::force_offline_for())]
+		#[transactional]
+		pub fn force_offline_for(origin: OriginFor<T>, worker: T::AccountId) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+			Self::do_force_offline(worker, Some(who))
+		}
+
+
 		/// Set worker's implementations' permissions
+		#[pallet::call_index(11)]
 		#[pallet::weight(0)]
 		#[transactional]
 		pub fn set_worker_impl_permission(
@@ -452,6 +465,7 @@ mod pallet {
 		}
 
 		/// Set worker's implementations' hashes
+		#[pallet::call_index(12)]
 		#[pallet::weight(0)]
 		#[transactional]
 		pub fn set_worker_impl_hashes(

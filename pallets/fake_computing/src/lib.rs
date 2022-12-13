@@ -86,6 +86,7 @@ pub mod pallet {
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
+		#[pallet::call_index(0)]
 		#[pallet::weight(0)]
 		pub fn start(origin: OriginFor<T>, worker: T::AccountId) -> DispatchResult {
 			Self::ensure_owner_or_root(origin, &worker)?;
@@ -99,6 +100,7 @@ pub mod pallet {
 			Ok(())
 		}
 
+		#[pallet::call_index(1)]
 		#[pallet::weight(0)]
 		pub fn stop(origin: OriginFor<T>, worker: T::AccountId) -> DispatchResult {
 			Self::ensure_owner_or_root(origin, &worker)?;
