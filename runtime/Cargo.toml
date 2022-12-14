@@ -60,7 +60,7 @@ pallet-simple_computing = { path = "../pallets/simple_computing", default-featur
 node-primitives = { path = "../primitives", default-features = false }
 
 [build-dependencies]
-substrate-wasm-builder = { git = "https://github.com/paritytech/substrate", branch = "master" }
+substrate-wasm-builder = { git = "https://github.com/paritytech/substrate", branch = "master", optional = true }
 
 [features]
 default = ["std"]
@@ -80,6 +80,7 @@ std = [
 	"sp-std/std",
 	"sp-transaction-pool/std",
 	"sp-version/std",
+	"substrate-wasm-builder",
 	"frame-executive/std",
 	"frame-support/std",
 	"frame-system/std",
