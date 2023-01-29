@@ -213,8 +213,6 @@ mod benches {
 		[pallet_multisig, Multisig]
 		[pallet_balances, Balances]
 		[pallet_vesting, Vesting]
-		[pallet_message_queue, MessageQueue]
-		[pallet_nfts, Nfts]
 		[pallet_computing_workers, ComputingWorkers]
 	);
 }

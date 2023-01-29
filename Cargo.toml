@@ -31,4 +31,5 @@ members = [
     "runtime",
     "runtime-primitives",
     "pallets/*",
+    "worker",
 ]
