@@ -2,21 +2,33 @@
 panic = "unwind"
 opt-level = 3
 
+# make sure dev builds with backtrace do
+# not slow us down
+[profile.dev.package.backtrace]
+inherits = "release"
+
 [profile.production]
 inherits = "release"
 lto = true
 codegen-units = 1
 
+[profile.testnet]
+inherits = "release"
+debug = 1 # debug symbols are useful for profilers
+debug-assertions = true
+overflow-checks = true
+
+[workspace.package]
+authors = ["Jasl <https://github.com/jasl>"]
+homepage = "https://github.com/jasl/research-network"
+repository = "https://github.com/jasl/research-network"
+
 [workspace]
 resolver = "2"
 
 members = [
-    "primitives",
     "node",
     "runtime",
+    "runtime-primitives",
     "pallets/*",
-]
-
-exclude = [
-    "contracts",
 ]

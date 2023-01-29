@@ -13,11 +13,10 @@ mod balances;
 mod transaction_payment;
 mod vesting;
 
-mod message_queue;
-
 mod computing_workers;
 mod simple_computing;
 
+mod pov;
 mod sudo;
 
 pub use system::*;
