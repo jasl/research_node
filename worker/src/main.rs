@@ -1,5 +1,6 @@
 mod chain;
 mod chain_bridge;
+mod job_manager;
 
 use log::{info, warn, error};
 
@@ -69,6 +70,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 			),
 		]
 	)?;
+
+	let mut job = job_manager::Job::new(Box::new(move || Box::pin(async move {
+		info!("yoooo");
+		let result = String::from("FOOOOOO");
+		Ok(Some(result))
+	})));
+	job.run().await?;
+	info!("job status: {:?}", job.status());
 
 	let args = CliArgs::parse();
 	let work_path = args.work_path.as_path();
