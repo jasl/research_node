@@ -46,11 +46,11 @@ impl ChainBridge {
 		self.client.storage()
 	}
 
-	pub fn into_online_client(self) -> ChainClient {
-		self.client
-	}
-
 	pub fn public_key(&self) -> Public {
 		self.key_pair.public()
+	}
+
+	pub fn into_online_client(self) -> ChainClient {
+		self.client
 	}
 }
