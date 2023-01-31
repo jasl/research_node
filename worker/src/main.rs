@@ -1,10 +1,10 @@
 mod chain;
+mod chain_bridge;
 
 use log::{info, warn, error};
 
 use std::{
 	str::FromStr,
-	sync::Arc,
 	path::PathBuf
 };
 use futures::StreamExt;
@@ -15,13 +15,13 @@ use sp_core::{
 	sr25519::Pair,
 	Pair as PairT,
 };
-use subxt::{
-	dynamic::Value,
-	OnlineClient,
-};
-use crate::chain::RuntimeConfig;
+
+use crate::chain_bridge::ChainBridge;
+
+use subxt::dynamic::Value;
 use scale_codec::Decode;
 use runtime_primitives::types::{AccountId, Balance, BlockNumber};
+
 type WorkerInfo = pallet_computing_workers_primitives::WorkerInfo<AccountId, Balance, BlockNumber>;
 
 #[derive(Debug, Clone, PartialEq, clap::Parser)]
@@ -103,27 +103,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let keyring = Pair::from(secret);
 	info!("Worker identity: {}", keyring.public());
 
-	let substrate_url = args.substrate_rpc_url.as_str();
-	let substrate_api = OnlineClient::<RuntimeConfig>::from_url(substrate_url).await?;
-	let substrate_api = Arc::new(substrate_api);
-	info!("Connected to: {}", substrate_url);
+	let substrate_url = args.substrate_rpc_url;
+	let chain_bridge = ChainBridge::connect(&substrate_url, keyring).await?;
+	info!("Connected to: {}", substrate_url.as_str());
 
-	listen_finalized_blocks(keyring, substrate_api).await?;
+	listen_finalized_blocks(chain_bridge).await?;
 
 	Ok(())
 }
 
-async fn listen_finalized_blocks(keyring: Pair, substrate_api: Arc<OnlineClient<RuntimeConfig>>) -> Result<(), Box<dyn std::error::Error>> {
+async fn listen_finalized_blocks(chain_bridge: ChainBridge) -> Result<(), Box<dyn std::error::Error>> {
+	let worker_public_key = chain_bridge.public_key();
 	let storage_address = subxt::dynamic::storage(
 		"ComputingWorkers",
 		"Workers",
 		vec![
 			// Something that encodes to an AccountId32 is what we need for the map key here:
-			Value::from_bytes(&keyring.public()),
+			Value::from_bytes(&worker_public_key),
 		],
 	);
 
-	let mut block_sub = substrate_api.blocks().subscribe_finalized().await?;
+	let mut block_sub = chain_bridge.blocks().subscribe_finalized().await?;
 	// Get each finalized block as it arrives.
 	while let Some(block) = block_sub.next().await {
 		let block = match block {
@@ -135,14 +135,11 @@ async fn listen_finalized_blocks(keyring: Pair, substrate_api: Arc<OnlineClient<
 		};
 		let block_number = block.number();
 		let block_hash = block.hash();
+		let chain_storage = chain_bridge.storage().at(Some(block_hash)).await?;
+
 		let worker_info: WorkerInfo = {
 			let raw_worker_info =
-				match substrate_api
-					.storage()
-					.at(Some(block_hash))
-					.await?
-					.fetch(&storage_address)
-					.await {
+				match chain_storage.fetch(&storage_address).await {
 					Ok(r) => r,
 					Err(e) => {
 						error!("[Finalized #{}] Couldn't fetch the worker info: {:?}", block_number, e);
@@ -150,7 +147,7 @@ async fn listen_finalized_blocks(keyring: Pair, substrate_api: Arc<OnlineClient<
 					}
 				};
 			let Some(raw_worker_info) = raw_worker_info else {
-				warn!("[Finalized #{}] Couldn't find the worker info, you need to call `computing_workers.register(\"{}\", initialDeposit)` to make it on-chain first", block_number, keyring.public());
+				warn!("[Finalized #{}] Couldn't find the worker info, you need to call `computing_workers.register(\"{}\", initialDeposit)` to make it on-chain first", block_number, worker_public_key);
 				continue;
 			};
 			match WorkerInfo::decode::<&[u8]>(&mut raw_worker_info.encoded()) {
@@ -182,5 +179,3 @@ async fn listen_finalized_blocks(keyring: Pair, substrate_api: Arc<OnlineClient<
 
 	Ok(())
 }
-
-
