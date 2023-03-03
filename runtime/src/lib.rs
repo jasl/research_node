@@ -25,18 +25,19 @@ use sp_version::RuntimeVersion;
 use frame_support::{
 	construct_runtime,
 	traits::{
+		tokens::nonfungibles_v2::Inspect,
 		Contains, InstanceFilter, WithdrawReasons
 	},
 	weights::Weight,
 	RuntimeDebug,
 };
 
-use pallet_grandpa::{fg_primitives, AuthorityId as GrandpaId, AuthorityList as GrandpaAuthorityList};
+use pallet_grandpa::AuthorityId as GrandpaId;
 use pallet_transaction_payment::Multiplier;
 
 use runtime_primitives::constants::{
 	currency::{deposit, EXISTENTIAL_DEPOSIT, UNITS},
-	time::SLOT_DURATION,
+	time::{SLOT_DURATION, DAYS},
 	weight::{AVERAGE_ON_INITIALIZE_RATIO, MAXIMUM_BLOCK_WEIGHT, NORMAL_DISPATCH_RATIO},
 };
 
@@ -53,9 +54,11 @@ pub use runtime_primitives::{
 	types::{AccountId, Lookup, Balance, BlockNumber, Hash, Hashing, Index, Moment, Signature},
 };
 
-mod migrations;
-
 mod pallet_configs;
+mod migrations;
+#[cfg(test)]
+mod test;
+
 pub use pallet_configs::*;
 
 impl_opaque_keys! {
@@ -168,54 +171,35 @@ construct_runtime!(
 		UncheckedExtrinsic = UncheckedExtrinsic,
 	{
 		// System support
-		System: frame_system::{Pallet, Call, Storage, Config, Event<T>} = 0,
-		Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent} = 1,
-		RandomnessCollectiveFlip: pallet_randomness_collective_flip::{Pallet, Storage} = 2,
+		System: frame_system = 0,
+		Timestamp: pallet_timestamp = 1,
+		RandomnessCollectiveFlip: pallet_insecure_randomness_collective_flip = 2,
 
 		// Consensus
-		Aura: pallet_aura::{Pallet, Config<T>, Storage} = 20,
-		Grandpa: pallet_grandpa::{Pallet, Call, Storage, Config, Event} = 21,
+		Aura: pallet_aura = 20,
+		Grandpa: pallet_grandpa = 21,
 
 		// Utilities
-		Utility: pallet_utility::{Pallet, Call, Event} = 40,
-		Multisig: pallet_multisig::{Pallet, Call, Storage, Event<T>} = 41,
-		Proxy: pallet_proxy::{Pallet, Call, Storage, Event<T>} = 42,
+		Utility: pallet_utility = 40,
+		Multisig: pallet_multisig = 41,
+		Proxy: pallet_proxy = 42,
 
 		// Monetary
-		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>} = 60,
-		TransactionPayment: pallet_transaction_payment::{Pallet, Storage, Config, Event<T>} = 61,
-		Vesting: pallet_vesting::{Pallet, Call, Storage, Config<T>, Event<T>} = 62,
+		Balances: pallet_balances = 60,
+		TransactionPayment: pallet_transaction_payment = 61,
+		Vesting: pallet_vesting = 62,
+
+		// NFT
+		Nfts: pallet_nfts = 80,
 
 		// The main stage
-		ComputingWorkers: pallet_computing_workers::{Pallet, Call, Storage, Event<T>} = 110,
-		SimpleComputing: pallet_simple_computing::{Pallet, Call, Storage, Event<T>} = 111,
+		ComputingWorkers: pallet_computing_workers = 100,
+		SimpleComputing: pallet_simple_computing = 101,
 
 		// Non-permanent
-		Pov: frame_benchmarking_pallet_pov::{Pallet, Call, Storage, Event<T>} = 254,
-		Sudo: pallet_sudo::{Pallet, Call, Storage, Config<T>, Event<T>} = 255,
+		Sudo: pallet_sudo = 255,
 	}
 );
-
-#[cfg(feature = "runtime-benchmarks")]
-#[macro_use]
-extern crate frame_benchmarking;
-
-#[cfg(feature = "runtime-benchmarks")]
-mod benches {
-	define_benchmarks!(
-		[frame_benchmarking, BaselineBench::<Runtime>]
-		[frame_benchmarking_pallet_pov, Pov]
-		[frame_system, SystemBench::<Runtime>]
-		[pallet_timestamp, Timestamp]
-		[pallet_grandpa, Grandpa]
-		[pallet_proxy, Proxy]
-		[pallet_utility, Utility]
-		[pallet_multisig, Multisig]
-		[pallet_balances, Balances]
-		[pallet_vesting, Vesting]
-		[pallet_computing_workers, ComputingWorkers]
-	);
-}
 
 impl_runtime_apis! {
 	impl sp_api::Core<Block> for Runtime {
@@ -297,29 +281,29 @@ impl_runtime_apis! {
 		}
 	}
 
-	impl fg_primitives::GrandpaApi<Block> for Runtime {
-		fn grandpa_authorities() -> GrandpaAuthorityList {
+	impl sp_consensus_grandpa::GrandpaApi<Block> for Runtime {
+		fn grandpa_authorities() -> sp_consensus_grandpa::AuthorityList {
 			Grandpa::grandpa_authorities()
 		}
 
-		fn current_set_id() -> fg_primitives::SetId {
+		fn current_set_id() -> sp_consensus_grandpa::SetId {
 			Grandpa::current_set_id()
 		}
 
 		fn submit_report_equivocation_unsigned_extrinsic(
-			_equivocation_proof: fg_primitives::EquivocationProof<
+			_equivocation_proof: sp_consensus_grandpa::EquivocationProof<
 				<Block as BlockT>::Hash,
 				NumberFor<Block>,
 			>,
-			_key_owner_proof: fg_primitives::OpaqueKeyOwnershipProof,
+			_key_owner_proof: sp_consensus_grandpa::OpaqueKeyOwnershipProof,
 		) -> Option<()> {
 			None
 		}
 
 		fn generate_key_ownership_proof(
-			_set_id: fg_primitives::SetId,
+			_set_id: sp_consensus_grandpa::SetId,
 			_authority_id: GrandpaId,
-		) -> Option<fg_primitives::OpaqueKeyOwnershipProof> {
+		) -> Option<sp_consensus_grandpa::OpaqueKeyOwnershipProof> {
 			// NOTE: this is the only implementation possible since we've
 			// defined our key owner proof type as a bottom type (i.e. a type
 			// with no values).
@@ -351,6 +335,50 @@ impl_runtime_apis! {
 		}
 		fn query_length_to_fee(length: u32) -> Balance {
 			TransactionPayment::length_to_fee(length)
+		}
+	}
+
+	impl pallet_nfts_runtime_api::NftsApi<Block, AccountId, u32, u32> for Runtime {
+		fn owner(collection: u32, item: u32) -> Option<AccountId> {
+			<Nfts as Inspect<AccountId>>::owner(&collection, &item)
+		}
+
+		fn collection_owner(collection: u32) -> Option<AccountId> {
+			<Nfts as Inspect<AccountId>>::collection_owner(&collection)
+		}
+
+		fn attribute(
+			collection: u32,
+			item: u32,
+			key: Vec<u8>,
+		) -> Option<Vec<u8>> {
+			<Nfts as Inspect<AccountId>>::attribute(&collection, &item, &key)
+		}
+
+		fn custom_attribute(
+			account: AccountId,
+			collection: u32,
+			item: u32,
+			key: Vec<u8>,
+		) -> Option<Vec<u8>> {
+			<Nfts as Inspect<AccountId>>::custom_attribute(
+				&account,
+				&collection,
+				&item,
+				&key,
+			)
+		}
+
+		fn system_attribute(
+			collection: u32,
+			item: u32,
+			key: Vec<u8>,
+		) -> Option<Vec<u8>> {
+			<Nfts as Inspect<AccountId>>::system_attribute(&collection, &item, &key)
+		}
+
+		fn collection_attribute(collection: u32, key: Vec<u8>) -> Option<Vec<u8>> {
+			<Nfts as Inspect<AccountId>>::collection_attribute(&collection, &key)
 		}
 	}
 
@@ -447,29 +475,24 @@ impl_runtime_apis! {
 	}
 }
 
-#[cfg(test)]
-mod tests {
-	use super::*;
-	use frame_support::traits::WhitelistedStorageKeys;
-	use sp_core::hexdisplay::HexDisplay;
-	use std::collections::HashSet;
+#[cfg(feature = "runtime-benchmarks")]
+#[macro_use]
+extern crate frame_benchmarking;
 
-	#[test]
-	fn check_whitelist() {
-		let whitelist: HashSet<String> = AllPalletsWithSystem::whitelisted_storage_keys()
-			.iter()
-			.map(|e| HexDisplay::from(&e.key).to_string())
-			.collect();
-
-		// Block Number
-		assert!(whitelist.contains("26aa394eea5630e07c48ae0c9558cef702a5c1b19ab7a04f536c519aca4983ac"));
-		// Total Issuance
-		assert!(whitelist.contains("c2261276cc9d1f8598ea4b6a74b15c2f57c875e4cff74148e4628f264b974c80"));
-		// Execution Phase
-		assert!(whitelist.contains("26aa394eea5630e07c48ae0c9558cef7ff553b5a9862a516939d82b3d3d8661a"));
-		// Event Count
-		assert!(whitelist.contains("26aa394eea5630e07c48ae0c9558cef70a98fdbe9ce6c55837576c60c7af3850"));
-		// System Events
-		assert!(whitelist.contains("26aa394eea5630e07c48ae0c9558cef780d41e5e16056765bc8461851072c9d7"));
-	}
+#[cfg(feature = "runtime-benchmarks")]
+mod benches {
+	define_benchmarks!(
+		[frame_benchmarking, BaselineBench::<Runtime>]
+		[frame_system, SystemBench::<Runtime>]
+		[pallet_timestamp, Timestamp]
+		[pallet_grandpa, Grandpa]
+		[pallet_proxy, Proxy]
+		[pallet_utility, Utility]
+		[pallet_multisig, Multisig]
+		[pallet_balances, Balances]
+		[pallet_vesting, Vesting]
+		[pallet_message_queue, MessageQueue]
+		[pallet_nfts, Nfts]
+		[pallet_computing_workers, ComputingWorkers]
+	);
 }

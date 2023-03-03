@@ -47,9 +47,9 @@ use crate::{
 	weights::WeightInfo,
 };
 
-pub type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
-pub type PositiveImbalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::PositiveImbalance;
-pub type NegativeImbalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::NegativeImbalance;
+pub(crate) type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+pub(crate) type PositiveImbalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::PositiveImbalance;
+pub(crate) type NegativeImbalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::NegativeImbalance;
 
 #[frame_support::pallet]
 mod pallet {
@@ -68,7 +68,7 @@ mod pallet {
 	/// Configure the pallet by specifying the parameters and types on which it depends.
 	#[pallet::config]
 	pub trait Config: frame_system::Config {
-		/// Because this pallet emits events, it depends on the runtime's definition of an event.
+		/// Because this pallet emits events, it depends on the runtime definition of an event.
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
 		/// The system's currency for payment.
@@ -123,43 +123,36 @@ mod pallet {
 		type WeightInfo: WeightInfo;
 
 		/// A handler for manging worker slashing
-		type WorkerLifecycleHooks: WorkerLifecycleHooks<Self::AccountId, BalanceOf<Self>>;
+		type WorkerLifecycleHooks: WorkerLifecycleHooks<Self::AccountId>;
 	}
 
 	/// Storage for worker's implementations permission.
 	#[pallet::storage]
-	#[pallet::getter(fn worker_impl_permissions)]
 	pub(crate) type WorkerImplPermissions<T: Config> = StorageMap<_, Identity, WorkerImplName, WorkerImplPermission>;
 
 	/// Storage for worker's implementations' hashes.
 	#[pallet::storage]
-	#[pallet::getter(fn worker_impl_hashes)]
 	pub(crate) type WorkerImplHashes<T: Config> =
 		StorageDoubleMap<_, Identity, WorkerImplName, Identity, WorkerImplVersion, WorkerImplHash>;
 
 	/// Storage for computing_workers.
 	#[pallet::storage]
-	#[pallet::getter(fn workers)]
 	pub(crate) type Workers<T: Config> = CountedStorageMap<_, Identity, T::AccountId, WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>>;
 
 	/// Storage for flip set, this is for online checking
 	#[pallet::storage]
-	#[pallet::getter(fn flip_set)]
 	pub(crate) type FlipSet<T: Config> = CountedStorageMap<_, Identity, T::AccountId, T::BlockNumber>;
 
 	/// Storage for flop set, this is for online checking
 	#[pallet::storage]
-	#[pallet::getter(fn flop_set)]
 	pub(crate) type FlopSet<T: Config> = CountedStorageMap<_, Identity, T::AccountId, T::BlockNumber>;
 
 	/// Storage for stage of flip-flop, this is used for online checking
 	#[pallet::storage]
-	#[pallet::getter(fn flip_flop_stage)]
 	pub(crate) type FlipOrFlop<T: Config> = StorageValue<_, FlipFlopStage, ValueQuery>;
 
 	/// Storage for stage of flip-flop, this is used for online checking
 	#[pallet::storage]
-	#[pallet::getter(fn current_flip_flop_started_at)]
 	pub(crate) type CurrentFlipFlopStartedAt<T: Config> = StorageValue<_, T::BlockNumber, ValueQuery>;
 
 	#[pallet::event]
@@ -976,8 +969,13 @@ impl<T: Config> Pallet<T> {
 	}
 }
 
-impl<T: Config> WorkerManageable<T> for Pallet<T> {
-	fn worker_info(worker: &T::AccountId) -> Option<WorkerInfo<T::AccountId, BalanceOf<T>, T::BlockNumber>> {
+impl<T: Config> WorkerManageable<T::AccountId, T::BlockNumber> for Pallet<T> {
+	type Currency = T::Currency;
+	type Balance = BalanceOf<T>;
+	type PositiveImbalance = PositiveImbalanceOf<T>;
+	type NegativeImbalance = NegativeImbalanceOf<T>;
+
+	fn worker_info(worker: &T::AccountId) -> Option<WorkerInfo<T::AccountId, Self::Balance, T::BlockNumber>> {
 		Workers::<T>::get(worker)
 	}
 
@@ -985,11 +983,11 @@ impl<T: Config> WorkerManageable<T> for Pallet<T> {
 		Workers::<T>::contains_key(worker)
 	}
 
-	fn reward(worker: &T::AccountId, source: &T::AccountId, value: BalanceOf<T>) -> DispatchResult {
+	fn reward(worker: &T::AccountId, source: &T::AccountId, value: Self::Balance) -> DispatchResult {
 		<T as Config>::Currency::transfer(source, worker, value, ExistenceRequirement::KeepAlive)
 	}
 
-	fn slash(worker: &T::AccountId, value: BalanceOf<T>) -> (NegativeImbalanceOf<T>, BalanceOf<T>) {
+	fn slash(worker: &T::AccountId, value: Self::Balance) -> (Self::NegativeImbalance, Self::Balance) {
 		<T as Config>::Currency::slash(worker, value)
 	}
 

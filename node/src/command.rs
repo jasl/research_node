@@ -9,6 +9,9 @@ use sc_cli::{ChainSpec, RuntimeVersion, SubstrateCli};
 use sc_service::PartialComponents;
 use sp_keyring::Sr25519Keyring;
 
+#[cfg(feature = "try-runtime")]
+use try_runtime_cli::block_building_info::timestamp_with_aura_info;
+
 use runtime_primitives::{constants::currency::EXISTENTIAL_DEPOSIT, opaque::Block};
 
 impl SubstrateCli for Cli {
@@ -29,7 +32,7 @@ impl SubstrateCli for Cli {
 	}
 
 	fn support_url() -> String {
-		"https://github.com/jasl/research-node/issues/new".into()
+		"https://github.com/jasl/research/issues/new".into()
 	}
 
 	fn copyright_start_year() -> i32 {
@@ -37,11 +40,12 @@ impl SubstrateCli for Cli {
 	}
 
 	fn load_spec(&self, id: &str) -> Result<Box<dyn sc_service::ChainSpec>, String> {
-		Ok(match id {
-			"dev" => Box::new(chain_spec::development_config()?),
-			"" | "local" => Box::new(chain_spec::local_testnet_config()?),
-			path => Box::new(chain_spec::ChainSpec::from_json_file(std::path::PathBuf::from(path))?),
-		})
+		match id {
+			"" => Err("Must specify a chain spec".into()),
+			"dev" => Ok(Box::new(chain_spec::development()?)),
+			"local" => Ok(Box::new(chain_spec::local()?)),
+			path => Ok(Box::new(chain_spec::ChainSpec::from_json_file(std::path::PathBuf::from(path))?)),
+		}
 	}
 
 	fn native_runtime_version(_: &Box<dyn ChainSpec>) -> &'static RuntimeVersion {
@@ -96,7 +100,7 @@ pub fn run() -> sc_cli::Result<()> {
 			runner.async_run(|config| {
 				let PartialComponents { client, task_manager, backend, .. } = service::new_partial(&config)?;
 				let aux_revert = Box::new(|client, _, blocks| {
-					sc_finality_grandpa::revert(client, blocks)?;
+					sc_consensus_grandpa::revert(client, blocks)?;
 					Ok(())
 				});
 				Ok((cmd.run(client, backend, Some(aux_revert)), task_manager))
@@ -166,7 +170,15 @@ pub fn run() -> sc_cli::Result<()> {
 				let registry = config.prometheus_config.as_ref().map(|cfg| &cfg.registry);
 				let task_manager = sc_service::TaskManager::new(config.tokio_handle.clone(), registry)
 					.map_err(|e| sc_cli::Error::Service(sc_service::Error::Prometheus(e)))?;
-				Ok((cmd.run::<Block, service::ExecutorDispatch>(config), task_manager))
+				let info_provider = timestamp_with_aura_info(6000);
+
+				Ok((
+					cmd.run::<Block, ExtendedHostFunctions<
+						sp_io::SubstrateHostFunctions,
+						<ExecutorDispatch as NativeExecutionDispatch>::ExtendHostFunctions,
+					>, _>(Some(info_provider)),
+					task_manager,
+				))
 			})
 		},
 		#[cfg(not(feature = "try-runtime"))]

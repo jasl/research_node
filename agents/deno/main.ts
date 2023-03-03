@@ -3,7 +3,7 @@ import * as log from "https://deno.land/std/log/mod.ts";
 import * as path from "https://deno.land/std/path/mod.ts";
 import { copySync } from "https://deno.land/std/fs/mod.ts";
 
-import { BN, hexToU8a, isHex, u8aToHex, u8aToString } from "https://deno.land/x/polkadot/util/mod.ts";
+import { BN, hexToU8a, isHex, u8aToHex, u8aToString, hexToString } from "https://deno.land/x/polkadot/util/mod.ts";
 import { cryptoWaitReady, mnemonicGenerate } from "https://deno.land/x/polkadot/util-crypto/mod.ts";
 import { KeyringPair } from "https://deno.land/x/polkadot/keyring/types.ts";
 import { ApiPromise, HttpProvider, Keyring, WsProvider } from "https://deno.land/x/polkadot/api/mod.ts";
@@ -221,6 +221,7 @@ function createSubstrateApi(rpcUrl: string): ApiPromise | null {
           "Errored",
         ],
       },
+      JobOutput: "BoundedVec<u8, 128000>"
     },
   });
 }
@@ -272,30 +273,6 @@ async function handleJob() {
   const logger = log.getLogger("background");
   const api = window.substrateApi;
   const job = window.locals.currentJob;
-
-  if (job.status === JobStatus.Completed) {
-    window.locals.sentCompleteJobAt = undefined;
-    window.locals.runningJob = undefined;
-
-    if (window.locals.sentRemoveJobAt && window.locals.sentRemoveJobAt >= window.finalizedBlockNumber) {
-      logger.debug("Waiting remove job extrinsic finalize");
-
-      return;
-    }
-
-    logger.info(`Sending "simple_computing.remove_job()`);
-    const txPromise = api.tx.simpleComputing.removeJob(window.workerKeyPair.address);
-    logger.debug(`Call hash: ${txPromise.toHex()}`);
-    const txHash = await txPromise.signAndSend(window.workerKeyPair, { nonce: -1 });
-    logger.info(`Transaction hash: ${txHash.toHex()}`);
-    // TODO: Catch whether failed
-
-    window.locals.sentRemoveJobAt = window.latestBlockNumber;
-
-    return;
-  } else {
-    window.locals.sentRemoveJobAt = undefined;
-  }
 
   if (job.status === JobStatus.Started && window.locals.sentCompleteJobAt) {
     logger.debug("Waiting complete job extrinsic finalize");
@@ -350,6 +327,7 @@ async function handleJob() {
   // - Clean up `tmp/${JID}/` when a job is finished and archived on chain
 
   console.log(job)
+  console.log(hexToString(job.input))
 
   const jobExecName = "my_job.ts";
   const jobSource = path.join(dataPath, jobExecName);
@@ -363,25 +341,36 @@ async function handleJob() {
   copySync(jobSource, path.join(jobWorkPath, jobExecName), { overwrite: true })
 
   // Run the job
-  const process = Deno.run({
-    cmd: [
-      "deno",
+  const command = new Deno.Command(Deno.execPath(), {
+    args: [
       "run",
       "--no-prompt",
+      "--allow-env",
       "--allow-net",
       `--allow-read=${jobWorkPath}`,
       `--allow-write=${jobWorkPath}`,
       path.join(jobWorkPath, jobExecName),
-      job.payload.toString()
+      hexToString(job.input),
     ],
+    cwd: jobWorkPath,
+    clearEnv: true,
+    stdout: "piped",
+    stderr: "piped",
   });
+  const child = command.spawn();
+  child.output().then(async ({code, stdout, stderr}) => {
+    const parsedOut = new TextDecoder().decode(stdout);
+    const parsedErrorOut = new TextDecoder().decode(stderr);
 
-  process.status().then(async (status) => {
-    const result = status.code === 0 ? "Success" : "Failed";
+    console.log(parsedOut);
+    console.log(parsedErrorOut);
+
+    const result = code === 0 ? "Success" : "Failed";
     const jobResult = api.createType("JobResult", result);
+    const jobOutput = api.createType("Option<JobOutput>", parsedOut)
 
     logger.info(`Sending "simple_computing.complete_job()`);
-    const txPromise = api.tx.simpleComputing.completeJob(jobResult);
+    const txPromise = api.tx.simpleComputing.completeJob(jobResult, jobOutput);
     logger.debug(`Call hash: ${txPromise.toHex()}`);
     const txHash = await txPromise.signAndSend(window.workerKeyPair, { nonce: -1 });
     logger.info(`Transaction hash: ${txHash.toHex()}`);
@@ -390,7 +379,7 @@ async function handleJob() {
     window.locals.sentCompleteJobAt = window.latestBlockNumber;
   });
 
-  window.locals.runningJob = process;
+  window.locals.runningJob = child;
 }
 
 if (parsedArgs.version) {
@@ -480,7 +469,6 @@ interface Locals {
   sentRefreshAttestationAt?: number;
   sentStartJobAt?: number;
   sentCompleteJobAt?: number;
-  sentRemoveJobAt?: number;
 
   currentJob?: any;
   runningJob?: Deno.Process;
@@ -709,6 +697,11 @@ await window.substrateApi.rpc.chain.subscribeFinalizedHeads(async (finalizedHead
     window.locals.currentJob = jsonifyJob
 
     await handleJob();
+  } else if (window.locals.sentCompleteJobAt) {
+    window.locals.sentCompleteJobAt = undefined;
+    window.locals.runningJob = undefined;
+
+    return;
   }
 });
 
